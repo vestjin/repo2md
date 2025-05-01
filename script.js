@@ -39,7 +39,7 @@ function renderExtensionFilters() {
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.value = ext;
-    checkbox.checked = false;
+    checkbox.checked = true;
     checkbox.id = `ext-${ext}`;
 
     checkbox.addEventListener("change", () => {
