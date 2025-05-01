@@ -3,15 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>代码转 Markdown 导出器</title>
+  <title>DIR2MD</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jstree@3.3.12/dist/themes/default/style.min.css"/>
   <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
-  <h1>📘 代码转 Markdown 导出器</h1>
-  <input type="file" id="directory-picker" webkitdirectory directory multiple />
+  <h1>📘 文件夹转Markdown</h1>
+  <div class="file-picker-wrapper">
+    <label for="directory-picker" class="file-picker-btn">选择文件夹或拖放到此处</label>
+    <input type="file" id="directory-picker" webkitdirectory directory multiple />
+  </div>
   <div>
-    <label><strong>后缀筛选：</strong></label>
+    <label><strong>后缀筛选</strong></label>
     <div id="extension-filters"></div>
   </div>
   <div id="tree-container"></div>

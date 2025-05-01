@@ -1,12 +1,86 @@
 body {
-    font-family: sans-serif;
-    padding: 1rem;
-    max-width: 900px;
-    margin: auto;
-  }
-  
-  textarea {
-    width: 100%;
-    margin-top: 1rem;
-  }
-  
+  font-family: sans-serif;
+  padding: 1rem;
+  max-width: 900px;
+  margin: auto;
+}
+
+textarea {
+  width: 100%;
+  margin-top: 1rem;
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.file-picker-wrapper {
+  margin: 1rem 0;
+  position: relative;
+}
+
+.file-picker-btn {
+  display: block;
+  width: 100%;
+  padding: 2rem;
+  background-color: #007bff;
+  color: white;
+  text-align: center;
+  font-size: 1.5rem;
+  font-weight: bold;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.3s, transform 0.2s;
+  user-select: none;
+}
+
+.file-picker-btn:hover {
+  background-color: #0056b3;
+  transform: scale(1.02);
+}
+
+#directory-picker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+#directory-picker::-webkit-file-upload-button {
+  display: none;
+}
+
+button {
+  padding: 0.5rem 1rem;
+  margin: 0.5rem 0.5rem 0.5rem 0;
+  background-color: #28a745;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+button:hover {
+  background-color: #218838;
+}
+
+#extension-filters label {
+  margin-right: 1rem;
+  font-size: 0.9rem;
+}
+
+#tree-container {
+  margin: 1rem 0;
+  border: 1px solid #ddd;
+  padding: 1rem;
+  border-radius: 4px;
+}
+
+#char-count {
+  font-weight: bold;
+  color: #333;
+}
