@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>代码转 Markdown 导出器</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jstree@3.3.12/dist/themes/default/style.min.css"/>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <h1>📘 代码转 Markdown 导出器</h1>
+  <input type="file" id="directory-picker" webkitdirectory directory multiple />
+  <div>
+    <label><strong>后缀筛选：</strong></label>
+    <div id="extension-filters"></div>
+  </div>
+  <div id="tree-container"></div>
+  <p>✅ 当前选中文件总字符数：<span id="char-count">0</span></p>
+  <button id="generate-btn">生成 Markdown</button>
+  <button id="copy-btn">📋 复制到剪贴板</button>
+  <textarea id="markdown-output" rows="20" placeholder="Markdown 会显示在这里..."></textarea>
+
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jstree@3.3.12/dist/jstree.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>

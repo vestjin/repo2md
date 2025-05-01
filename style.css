@@ -1,0 +1,12 @@
+body {
+    font-family: sans-serif;
+    padding: 1rem;
+    max-width: 900px;
+    margin: auto;
+  }
+  
+  textarea {
+    width: 100%;
+    margin-top: 1rem;
+  }
+  
