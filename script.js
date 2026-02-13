@@ -5,12 +5,25 @@ let allExtensions = new Set();
 let extensionFilters = new Set();
 let projectName = "";      // 从根目录名称获取
 
+// ==================== 二进制扩展名黑名单 ====================
+const BINARY_EXTENSIONS = new Set([
+  'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp',
+  'mp4', 'mp3', 'avi', 'mov', 'wmv', 'flv',
+  'pdf', 'xls', 'xlsx', 'ppt', 'pptx',
+  'zip', 'rar', '7z', 'tar', 'gz',
+  'exe', 'dll', 'so', 'dylib',
+  'iso', 'img',
+  'woff', 'woff2', 'ttf', 'eot',
+  'psd', 'ai', 'eps',
+  'bin', 'dat', 'db', 'sqlite'
+]);
+
 // ==================== 工具函数 ====================
 function getExtension(path) {
   const parts = path.split('/');
   const file = parts[parts.length - 1];
   const dotIndex = file.lastIndexOf('.');
-  return dotIndex === -1 ? '[无后缀]' : file.substring(dotIndex + 1);
+  return dotIndex === -1 ? '[无后缀]' : file.substring(dotIndex + 1).toLowerCase();
 }
 
 function formatBytes(bytes) {
@@ -19,6 +32,54 @@ function formatBytes(bytes) {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+// 二进制文件快速检测（扩展名 + 魔数）
+async function isBinaryFile(file, path) {
+  const ext = getExtension(path);
+  if (BINARY_EXTENSIONS.has(ext)) return true;
+
+  // 读取前4个字节检查常见二进制魔数
+  try {
+    const header = await file.slice(0, 4).arrayBuffer();
+    const view = new Uint8Array(header);
+    // PDF: %PDF
+    if (view[0] === 0x25 && view[1] === 0x50 && view[2] === 0x44 && view[3] === 0x46) return true;
+    // PNG: �PNG
+    if (view[0] === 0x89 && view[1] === 0x50 && view[2] === 0x4E && view[3] === 0x47) return true;
+    // JPEG: ����
+    if (view[0] === 0xFF && view[1] === 0xD8 && view[2] === 0xFF) return true;
+    // ZIP (PK)
+    if (view[0] === 0x50 && view[1] === 0x4B) return true;
+    // GZIP
+    if (view[0] === 0x1F && view[1] === 0x8B) return true;
+  } catch (e) {
+    // 读取失败则保守认为是二进制
+    return true;
+  }
+  return false;
+}
+
+// 流式读取文本文件（不阻塞UI）
+async function readTextFileStream(file) {
+  const stream = file.stream();
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let result = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      result += decoder.decode(value, { stream: true });
+      // 主动让出主线程，每块处理后可取消注释以提升响应性
+      // await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    result += decoder.decode(); // 完成
+  } finally {
+    reader.releaseLock();
+  }
+  return result;
 }
 
 // ==================== 新版文件夹选择 ====================
@@ -39,7 +100,7 @@ async function pickDirectoryModern() {
 
     extensionFilters = new Set(allExtensions);
     renderExtensionFilters();
-    buildTree(); // 构建完整树（不再过滤）
+    buildTree();
   } catch (err) {
     if (err.name === 'AbortError') return;
     console.error(err);
@@ -81,7 +142,7 @@ function handleLegacyPicker(files) {
 
   extensionFilters = new Set(allExtensions);
   renderExtensionFilters();
-  buildTree(); // 构建完整树（不再过滤）
+  buildTree();
 }
 
 // ==================== 后缀筛选UI ====================
@@ -97,14 +158,13 @@ function renderExtensionFilters() {
     checkbox.checked = extensionFilters.has(ext);
     checkbox.id = `ext-${ext}`;
 
-    // 【性能优化】不再调用 buildTree，而是调用快速筛选函数
     checkbox.addEventListener("change", () => {
       if (checkbox.checked) {
         extensionFilters.add(ext);
       } else {
         extensionFilters.delete(ext);
       }
-      applyExtensionFilter(); // ← 关键优化：仅隐藏/显示节点
+      applyExtensionFilter();
     });
 
     const label = document.createElement("label");
@@ -117,23 +177,21 @@ function renderExtensionFilters() {
   });
 }
 
-// ==================== 【新增】快速后缀筛选（不重建树）====================
+// ==================== 快速后缀筛选 ====================
 function applyExtensionFilter() {
   const tree = $('#tree-container').jstree(true);
   if (!tree) return;
 
-  // 获取所有文件节点（已渲染的li元素）
   const allFileNodes = $('#tree-container [data-file="true"]');
 
   allFileNodes.each((_, el) => {
-    const nodeId = el.id;          // li 的 id 即文件路径
+    const nodeId = el.id;
     const ext = getExtension(nodeId);
     const shouldShow = extensionFilters.has(ext);
 
     if (shouldShow) {
       tree.show_node(nodeId);
     } else {
-      // 隐藏节点，并确保它不被选中
       tree.hide_node(nodeId);
       if (tree.is_selected(nodeId)) {
         tree.deselect_node(nodeId);
@@ -141,11 +199,9 @@ function applyExtensionFilter() {
     }
   });
 
-  // 更新 selectedPaths 和总大小
   updateSelectedInfo();
 }
 
-// 更新选中信息（从树中获取当前选中的文件节点）
 function updateSelectedInfo() {
   const tree = $('#tree-container').jstree(true);
   if (!tree) return;
@@ -157,11 +213,11 @@ function updateSelectedInfo() {
   document.getElementById("size-display").textContent = formatBytes(totalBytes);
 }
 
-// ==================== 构建文件树（完整渲染 + 排序）====================
+// ==================== 构建文件树 ====================
 function buildTree() {
   const tree = {};
 
-  // 1. 【修改】不再根据后缀过滤，所有文件全部加入树
+  // 所有文件全部加入树（不按后缀过滤）
   Object.entries(fileMap).forEach(([path, file]) => {
     const parts = path.split('/');
     let current = tree;
@@ -177,7 +233,6 @@ function buildTree() {
     });
   });
 
-  // 2. 递归生成jsTree节点（目录优先 + 字母序）
   function recurse(obj, path = '') {
     const sortedEntries = Object.entries(obj).sort(([aName, aData], [bName, bData]) => {
       const aIsDir = !aData.__file;
@@ -198,7 +253,7 @@ function buildTree() {
         icon: isFile ? "jstree-file" : undefined,
         li_attr: {
           "data-file": isFile ? "true" : "false",
-          "data-ext": isFile ? getExtension(fullPath) : ""  // 【新增】存储后缀，便于快速筛选
+          "data-ext": isFile ? getExtension(fullPath) : ""
         }
       };
       const children = data.__children || {};
@@ -206,7 +261,6 @@ function buildTree() {
     });
   }
 
-  // 3. 渲染jsTree
   $('#tree-container')
     .jstree('destroy')
     .empty()
@@ -219,17 +273,128 @@ function buildTree() {
       plugins: ["checkbox"]
     })
     .on("ready.jstree", function () {
-      // 【新增】树渲染完成后，立即应用当前筛选（默认全显示）
       applyExtensionFilter();
     })
-    .on("changed.jstree", function (e, data) {
-      // 更新选中信息（用户手动勾选时）
+    .on("changed.jstree", function () {
       updateSelectedInfo();
     });
 }
 
-// ==================== 初始化UI ====================
+// ==================== 生成 ASCII 目录树 ====================
+function generateDirectoryTree() {
+  // 重新构建过滤后的树对象（与buildTree逻辑一致但只包含当前后缀可见文件）
+  const filteredTree = {};
+
+  Object.entries(fileMap).forEach(([path, file]) => {
+    const ext = getExtension(path);
+    if (!extensionFilters.has(ext)) return;
+
+    const parts = path.split('/');
+    let current = filteredTree;
+    parts.forEach((part, idx) => {
+      if (!current[part]) {
+        current[part] = { __children: {} };
+      }
+      if (idx === parts.length - 1) {
+        current[part].__file = file; // 文件节点标记
+      }
+      current = current[part].__children;
+    });
+  });
+
+  // 递归生成树字符串
+  function buildTreeString(node, prefix = '', isLast = true) {
+    if (Object.keys(node).length === 0) return '';
+
+    const entries = Object.entries(node).sort(([aName, aData], [bName, bData]) => {
+      const aIsDir = !aData.__file;
+      const bIsDir = !bData.__file;
+      if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+      return aName.localeCompare(bName, undefined, { sensitivity: 'base' });
+    });
+
+    let result = '';
+    entries.forEach(([name, data], index) => {
+      const isLastEntry = index === entries.length - 1;
+      const hasChildren = Object.keys(data.__children || {}).length > 0;
+      const isFile = !!data.__file;
+
+      // 当前行前缀
+      result += prefix + (isLast ? '└── ' : '├── ') + name;
+      if (!isFile && hasChildren) result += '/';
+      result += '\n';
+
+      // 子节点前缀
+      if (hasChildren) {
+        const childPrefix = prefix + (isLast ? '    ' : '│   ');
+        result += buildTreeString(data.__children, childPrefix, isLastEntry);
+      }
+    });
+    return result;
+  }
+
+  // 根目录名称 + 第一层内容
+  let treeString = `${projectName || '项目'}/\n`;
+  treeString += buildTreeString(filteredTree, '', true);
+  return treeString;
+}
+
+// ==================== 生成 Markdown（包含目录树 + 选中文件内容）====================
+async function generateMarkdown() {
+  let mdParts = [];
+
+  // 1. 项目概览标题
+  mdParts.push(`# 项目概览：${projectName || 'untitled'}\n`);
+
+  // 2. 目录树
+  mdParts.push(`## 📁 目录结构\n`);
+  mdParts.push('```\n' + generateDirectoryTree() + '```\n');
+
+  // 3. 文件内容
+  if (selectedPaths.length === 0) {
+    mdParts.push('*(未选中任何文件)*');
+  } else {
+    mdParts.push(`## 📄 文件内容\n`);
+    for (let path of selectedPaths) {
+      const file = fileMap[path];
+      const ext = getExtension(path);
+
+      // 二进制文件检测
+      const binary = await isBinaryFile(file, path);
+      if (binary) {
+        mdParts.push(`### \`${path}\`\n\`\`\`\n[二进制文件，已跳过]\n\`\`\``);
+        continue;
+      }
+
+      // 文本文件 - 流式读取
+      try {
+        const content = await readTextFileStream(file);
+        mdParts.push(`### \`${path}\`\n\`\`\`${ext === '[无后缀]' ? '' : ext}\n${content}\n\`\`\``);
+      } catch (e) {
+        mdParts.push(`### \`${path}\`\n\`\`\`\n[读取失败: ${e.message || '未知错误'}]\n\`\`\``);
+      }
+    }
+  }
+
+  return mdParts.join('\n\n');
+}
+
+// ==================== 导出 .md 文件 ====================
+function downloadMarkdown(content, name) {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const filename = `${name || 'project'}_${date}.md`;
+  const blob = new Blob([content], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ==================== 事件绑定 ====================
 function initUI() {
+  // 文件夹选择
   const modernBtn = document.getElementById('modern-picker-btn');
   const legacyLabel = document.getElementById('legacy-picker-label');
   const legacyInput = document.getElementById('directory-picker');
@@ -246,32 +411,43 @@ function initUI() {
     });
   }
 
+  // 生成 Markdown
   document.getElementById('generate-btn').addEventListener('click', async () => {
-    let mdParts = [];
-    mdParts.push(`# 项目概览：${projectName || 'untitled'}\n`);
-    mdParts.push(`## 📁 目录结构\n\n\`\`\`\n${projectName}/\n└── ...\n\`\`\`\n`);
-
-    for (let path of selectedPaths) {
-      const file = fileMap[path];
-      const ext = getExtension(path);
-      try {
-        const content = await file.text();
-        mdParts.push(`### \`${path}\`\n\`\`\`${ext === '[无后缀]' ? '' : ext}\n${content}\n\`\`\``);
-      } catch (e) {
-        mdParts.push(`### \`${path}\`\n\`\`\`\n[无法读取文件: 可能是二进制或过大]\n\`\`\``);
-      }
+    const generateBtn = document.getElementById('generate-btn');
+    generateBtn.disabled = true;
+    generateBtn.textContent = '⏳ 生成中...';
+    try {
+      const markdown = await generateMarkdown();
+      document.getElementById('markdown-output').value = markdown;
+    } catch (e) {
+      console.error(e);
+      alert('生成失败：' + e.message);
+    } finally {
+      generateBtn.disabled = false;
+      generateBtn.textContent = '生成 Markdown';
     }
-    document.getElementById('markdown-output').value = mdParts.join('\n\n');
   });
 
+  // 复制到剪贴板
   document.getElementById('copy-btn').addEventListener('click', () => {
     const text = document.getElementById('markdown-output').value;
     navigator.clipboard.writeText(text).then(() => {
-      alert("✅ 已复制到剪贴板");
+      alert('✅ 已复制到剪贴板');
     }).catch(() => {
-      alert("❌ 复制失败，请手动选择复制");
+      alert('❌ 复制失败，请手动复制');
     });
+  });
+
+  // 导出为 .md 文件
+  document.getElementById('export-btn').addEventListener('click', () => {
+    const content = document.getElementById('markdown-output').value;
+    if (!content.trim()) {
+      alert('请先生成 Markdown 内容');
+      return;
+    }
+    downloadMarkdown(content, projectName);
   });
 }
 
+// 启动
 initUI();
