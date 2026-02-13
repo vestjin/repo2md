@@ -280,29 +280,28 @@ function buildTree() {
     });
 }
 
-// ==================== 生成 ASCII 目录树 ====================
+// ==================== 生成 ASCII 目录树（基于已勾选文件）====================
 function generateDirectoryTree() {
-  // 重新构建过滤后的树对象（与buildTree逻辑一致但只包含当前后缀可见文件）
+  // 1. 根据 selectedPaths 构建树对象
   const filteredTree = {};
 
-  Object.entries(fileMap).forEach(([path, file]) => {
-    const ext = getExtension(path);
-    if (!extensionFilters.has(ext)) return;
-
+  selectedPaths.forEach(path => {
     const parts = path.split('/');
     let current = filteredTree;
+
     parts.forEach((part, idx) => {
       if (!current[part]) {
         current[part] = { __children: {} };
       }
       if (idx === parts.length - 1) {
-        current[part].__file = file; // 文件节点标记
+        // 标记为文件（只需布尔值，不需要真实 File 对象）
+        current[part].__file = true;
       }
       current = current[part].__children;
     });
   });
 
-  // 递归生成树字符串
+  // 2. 递归生成树字符串（目录优先 + 字母序）
   function buildTreeString(node, prefix = '', isLast = true) {
     if (Object.keys(node).length === 0) return '';
 
@@ -319,12 +318,12 @@ function generateDirectoryTree() {
       const hasChildren = Object.keys(data.__children || {}).length > 0;
       const isFile = !!data.__file;
 
-      // 当前行前缀
+      // 当前行
       result += prefix + (isLast ? '└── ' : '├── ') + name;
       if (!isFile && hasChildren) result += '/';
       result += '\n';
 
-      // 子节点前缀
+      // 递归子节点
       if (hasChildren) {
         const childPrefix = prefix + (isLast ? '    ' : '│   ');
         result += buildTreeString(data.__children, childPrefix, isLastEntry);
@@ -333,9 +332,13 @@ function generateDirectoryTree() {
     return result;
   }
 
-  // 根目录名称 + 第一层内容
+  // 3. 根目录 + 内容
   let treeString = `${projectName || '项目'}/\n`;
-  treeString += buildTreeString(filteredTree, '', true);
+  if (selectedPaths.length === 0) {
+    treeString += '└── (无选中文件)\n';
+  } else {
+    treeString += buildTreeString(filteredTree, '', true);
+  }
   return treeString;
 }
 
