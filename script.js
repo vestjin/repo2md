@@ -442,6 +442,18 @@ function downloadMarkdown(content, name) {
   URL.revokeObjectURL(url);
 }
 
+// 敏感词列表（可扩展）
+const SENSITIVE_KEYWORDS = [
+  '.env', '.key', '.pem', 'id_rsa', 'id_dsa',
+  'password', 'secret', 'token', 'credential', 'aws', 'private'
+];
+function hasSensitiveFiles(paths) {
+  return paths.some(path => {
+    const lower = path.toLowerCase();
+    return SENSITIVE_KEYWORDS.some(keyword => lower.includes(keyword));
+  });
+}
+
 // ==================== 事件绑定 ====================
 function initUI() {
   // 文件夹选择
@@ -463,6 +475,13 @@ function initUI() {
 
   // 生成 Markdown
   document.getElementById('generate-btn').addEventListener('click', async () => {
+    if (hasSensitiveFiles(selectedPaths)) {
+      const confirm = window.confirm(
+        '⚠️ 您选中的文件中可能包含敏感信息（如密钥、密码等）。\n确定要生成 Markdown 吗？'
+      );
+      if (!confirm) return;
+    }
+    
     const generateBtn = document.getElementById('generate-btn');
     generateBtn.disabled = true;
     generateBtn.textContent = '⏳ 生成中...';
