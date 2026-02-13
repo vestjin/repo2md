@@ -244,7 +244,7 @@ function updateSelectedInfo() {
   document.getElementById("size-display").textContent = formatBytes(totalBytes);
 }
 
-// ==================== 构建文件树 ====================
+// ==================== 构建文件树（包含项目根目录）====================
 function buildTree() {
   const tree = {};
 
@@ -255,7 +255,7 @@ function buildTree() {
 
     parts.forEach((part, idx) => {
       if (!current[part]) {
-        current[part] = { __children: {} };
+        current[part] = { __children: {}, __file: null };
       }
       if (idx === parts.length - 1) {
         current[part].__file = file;
@@ -264,7 +264,25 @@ function buildTree() {
     });
   });
 
-  function recurse(obj, path = '') {
+  const nodes = [];
+  // 根节点 ID 使用项目名，若为空则使用默认名
+  const rootId = projectName || '项目';
+
+  // 1. 添加根节点
+  nodes.push({
+    id: rootId,
+    parent: '#',
+    text: rootId + '/',        // 显示为 项目名/
+    icon: undefined,            // 可自定义文件夹图标，留空则使用默认
+    li_attr: {
+      "data-file": "false",     // 标记为非文件
+      "data-ext": ""
+    }
+  });
+
+  // 2. 递归生成子节点
+  function recurse(obj, parentPath) {
+    // 排序：目录优先 + 字母序
     const sortedEntries = Object.entries(obj).sort(([aName, aData], [bName, bData]) => {
       const aIsDir = !aData.__file;
       const bIsDir = !bData.__file;
@@ -272,42 +290,50 @@ function buildTree() {
       return aName.localeCompare(bName, undefined, { sensitivity: 'base' });
     });
 
-    return sortedEntries.flatMap(([name, data]) => {
-      const fullPath = path ? `${path}/${name}` : name;
+    sortedEntries.forEach(([name, data]) => {
+      // 当前节点的完整路径：如果父节点是根，则路径为 name；否则为 parentPath/name
+      const currentPath = parentPath === rootId ? name : `${parentPath}/${name}`;
       const isFile = !!data.__file;
+
       const node = {
-        id: fullPath,
-        parent: path || '#',
-        text: isFile
-          ? `${name} (${formatBytes(data.__file.size)})`
-          : name,
+        id: currentPath,
+        parent: parentPath,
+        text: isFile ? `${name} (${formatBytes(data.__file.size)})` : name,
         icon: isFile ? "jstree-file" : undefined,
         li_attr: {
           "data-file": isFile ? "true" : "false",
-          "data-ext": isFile ? getExtension(fullPath) : ""
+          "data-ext": isFile ? getExtension(currentPath) : ""
         }
       };
-      const children = data.__children || {};
-      return [node, ...recurse(children, node.id)];
+      nodes.push(node);
+
+      // 递归处理子目录
+      if (data.__children && Object.keys(data.__children).length > 0) {
+        recurse(data.__children, currentPath);
+      }
     });
   }
 
+  // 从根节点开始递归，传入根节点 ID 作为父路径
+  recurse(tree, rootId);
+
+  // 3. 渲染 jsTree
   $('#tree-container')
     .jstree('destroy')
     .empty()
     .jstree({
       core: {
-        data: recurse(tree),
+        data: nodes,
         themes: { dots: true, icons: true },
         multiple: true
       },
       plugins: ["checkbox"]
     })
     .on("ready.jstree", function () {
-      applyExtensionFilter();
+      applyExtensionFilter();   // 应用后缀筛选（隐藏不符合的文件）
     })
     .on("changed.jstree", function () {
-      updateSelectedInfo();
+      updateSelectedInfo();     // 更新总大小
     });
 }
 
