@@ -15,7 +15,7 @@ const BINARY_EXTENSIONS = new Set([
   'iso', 'img',
   'woff', 'woff2', 'ttf', 'eot',
   'psd', 'ai', 'eps',
-  'bin', 'dat', 'db', 'sqlite'
+  'bin', 'dat', 'db', 'sqlite', 'ico', 'cur', 'icns'
 ]);
 
 // ==================== 工具函数 ====================
