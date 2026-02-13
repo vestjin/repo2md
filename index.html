@@ -39,6 +39,12 @@
   <button id="generate-btn">生成 Markdown</button>
   <button id="copy-btn">📋 复制到剪贴板</button>
   <button id="export-btn">💾 导出为 .md 文件</button>
+
+  <!-- 生成进度 -->
+  <div id="generate-progress" style="display: none; margin: 10px 0; padding: 8px; background: #e3f2fd; border-radius: 4px;">
+    ⏳ 正在生成: <span id="generate-status"></span>
+  </div>
+  
   <textarea id="markdown-output" rows="20" placeholder="Markdown 会显示在这里..."></textarea>
 
   <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>

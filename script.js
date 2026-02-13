@@ -376,7 +376,10 @@ function generateDirectoryTree() {
 // ==================== 生成 Markdown（包含目录树 + 选中文件内容）====================
 async function generateMarkdown() {
   let mdParts = [];
-
+  const progressEl = document.getElementById('generate-progress');
+  const statusSpan = document.getElementById('generate-status');
+  // 显示进度
+  if (progressEl) progressEl.style.display = 'block';
   // 1. 项目概览标题
   mdParts.push(`# 项目概览：${projectName || 'untitled'}\n`);
 
@@ -389,9 +392,19 @@ async function generateMarkdown() {
     mdParts.push('*(未选中任何文件)*');
   } else {
     mdParts.push(`## 📄 文件内容\n`);
-    for (let path of selectedPaths) {
+
+    const total = selectedPaths.length;
+    for (let i = 0; i < total; i++) {
+      const path = selectedPaths[i];
       const file = fileMap[path];
       const ext = getExtension(path);
+
+      // 更新进度
+      if (statusSpan) {
+        statusSpan.textContent = `(${i+1}/${total}) ${path}`;
+      }
+      // 让UI更新
+      await new Promise(resolve => setTimeout(resolve, 0));
 
       // 二进制文件检测
       const binary = await isBinaryFile(file, path);
@@ -409,6 +422,9 @@ async function generateMarkdown() {
       }
     }
   }
+
+  // 隐藏进度
+  if (progressEl) progressEl.style.display = 'none';
 
   return mdParts.join('\n\n');
 }
