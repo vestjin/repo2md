@@ -4,7 +4,7 @@ let selectedPaths = [];    // 当前勾选的文件路径
 let allExtensions = new Set();
 let extensionFilters = new Set();
 let projectName = "";      // 从根目录名称获取
-
+let scanCount = 0;
 // ==================== 二进制扩展名黑名单 ====================
 const BINARY_EXTENSIONS = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp',
@@ -89,6 +89,12 @@ async function pickDirectoryModern() {
     return;
   }
 
+  // 重置进度
+  scanCount = 0;
+  const progressEl = document.getElementById('scan-progress');
+  if (progressEl) progressEl.style.display = 'block';
+  document.getElementById('scan-count').textContent = '0';
+
   try {
     const dirHandle = await window.showDirectoryPicker();
     projectName = dirHandle.name;
@@ -98,10 +104,15 @@ async function pickDirectoryModern() {
 
     await walkDirectory(dirHandle, '');
 
+    // 隐藏进度
+    if (progressEl) progressEl.style.display = 'none';
+
     extensionFilters = new Set(allExtensions);
     renderExtensionFilters();
     buildTree();
   } catch (err) {
+    // 错误时也隐藏进度条
+    if (progressEl) progressEl.style.display = 'none';
     if (err.name === 'AbortError') return;
     console.error(err);
     alert('读取文件夹失败：' + err.message);
@@ -116,6 +127,16 @@ async function walkDirectory(dirHandle, basePath) {
       fileMap[fullPath] = file;
       const ext = getExtension(fullPath);
       allExtensions.add(ext);
+      // 更新进度
+      scanCount++;
+      const progressEl = document.getElementById('scan-progress');
+      const countSpan = document.getElementById('scan-count');
+      if (progressEl && countSpan) {
+        progressEl.style.display = 'block';
+        countSpan.textContent = scanCount;
+        // 主动让出主线程，避免长时间阻塞渲染
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
     } else if (entry.kind === 'directory') {
       await walkDirectory(entry, fullPath);
     }
@@ -124,6 +145,11 @@ async function walkDirectory(dirHandle, basePath) {
 
 // ==================== 传统文件夹选择 ====================
 function handleLegacyPicker(files) {
+  scanCount = 0;
+  const progressEl = document.getElementById('scan-progress');
+  if (progressEl) progressEl.style.display = 'block';
+  document.getElementById('scan-count').textContent = '0';
+
   fileMap = {};
   allExtensions.clear();
   extensionFilters.clear();
@@ -138,7 +164,12 @@ function handleLegacyPicker(files) {
     fileMap[relativePath] = file;
     const ext = getExtension(relativePath);
     allExtensions.add(ext);
+
+    scanCount++;
+    document.getElementById('scan-count').textContent = scanCount;  
   });
+
+  if (progressEl) progressEl.style.display = 'none';
 
   extensionFilters = new Set(allExtensions);
   renderExtensionFilters();
