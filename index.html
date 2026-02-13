@@ -9,16 +9,28 @@
 </head>
 <body>
   <h1>📘 项目转Markdown</h1>
+
+  <!-- 文件夹选择区域：动态控制新版/降级显示 -->
   <div class="file-picker-wrapper">
-    <label for="directory-picker" class="file-picker-btn">选择文件夹或拖放到此处</label>
+    <!-- 新版按钮（默认隐藏，支持showDirectoryPicker时显示） -->
+    <button id="modern-picker-btn" class="file-picker-btn" style="display: none;">
+      📁 选择文件夹（推荐）
+    </button>
+    <!-- 降级方案：传统webkitdirectory (用于不支持新API的浏览器) -->
+    <label for="directory-picker" id="legacy-picker-label" class="file-picker-btn" style="display: block;">
+      ⚠️ 选择文件夹（传统模式）
+    </label>
     <input type="file" id="directory-picker" webkitdirectory directory multiple />
   </div>
+
   <div>
     <label><strong>后缀筛选</strong></label>
     <div id="extension-filters"></div>
   </div>
+
   <div id="tree-container"></div>
-  <p>✅ 当前选中文件总字符数：<span id="char-count">0</span></p>
+  <p>📦 当前选中文件总大小：<span id="size-display">0 B</span></p></p>
+  
   <button id="generate-btn">生成 Markdown</button>
   <button id="copy-btn">📋 复制到剪贴板</button>
   <textarea id="markdown-output" rows="20" placeholder="Markdown 会显示在这里..."></textarea>

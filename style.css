@@ -19,6 +19,7 @@ textarea {
   position: relative;
 }
 
+/* 补充新按钮与旧按钮的切换平滑性 */
 .file-picker-btn {
   display: block;
   width: 100%;
@@ -32,6 +33,8 @@ textarea {
   cursor: pointer;
   transition: background-color 0.3s, transform 0.2s;
   user-select: none;
+  border: none;
+  margin-bottom: 0.5rem;
 }
 
 .file-picker-btn:hover {
@@ -39,14 +42,19 @@ textarea {
   transform: scale(1.02);
 }
 
+/*传统input依然隐藏*/
 #directory-picker {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
   opacity: 0;
-  cursor: pointer;
+  /*top: 0;*/
+  /*left: 0;*/
+  width: 0;
+  height: 0;
+}
+
+/*新版按钮与降级标签共存间距*/
+#modern-picker-btn {
+  margin-bottom: 0.5rem;
 }
 
 #directory-picker::-webkit-file-upload-button {
