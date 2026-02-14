@@ -1,13 +1,21 @@
 import sys
 import os
+import math
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QTreeView, QTextEdit, QLabel, QMessageBox,
     QFileDialog, QListWidget, QListWidgetItem, QProgressDialog,
-    QAbstractItemView, QSplitter
+    QAbstractItemView, QSplitter, QLineEdit, QComboBox
 )
-from PySide6.QtCore import Qt, QThread, Signal, QSortFilterProxyModel
+from PySide6.QtCore import Qt, QThread, Signal, QSortFilterProxyModel, QModelIndex
 from PySide6.QtGui import QStandardItemModel, QStandardItem, QClipboard, QFont, QPalette, QColor
+
+# 尝试导入 tiktoken
+try:
+    import tiktoken
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    TIKTOKEN_AVAILABLE = False
 
 # ==================== 常量定义 ====================
 BINARY_EXTENSIONS = {
@@ -26,6 +34,60 @@ SENSITIVE_KEYWORDS = [
     '.env', '.key', '.pem', 'id_rsa', 'id_dsa',
     'password', 'secret', 'token', 'credential', 'aws', 'private'
 ]
+
+# 多语言字符串
+STRINGS = {
+    'zh': {
+        'window_title': 'repo2md - 项目转Markdown',
+        'choose_folder': '📁 选择文件夹',
+        'no_folder': '未选择文件夹',
+        'ext_filter': '🔍 扩展名筛选',
+        'file_tree': '📂 项目文件 (勾选所需文件)',
+        'size_label': '📦 当前选中总大小: {}',
+        'generate': '生成 Markdown',
+        'copy': '📋 复制到剪贴板',
+        'export': '💾 导出为 .md',
+        'search_placeholder': '🔎 搜索文件名...',
+        'language': '语言',
+        'scanning': '扫描文件中...',
+        'generating': '生成 Markdown 中...',
+        'warning': '提示',
+        'no_selection': '请至少勾选一个文件',
+        'sensitive_warning': '选中的文件包含可能敏感的信息：\n{}\n\n确定要继续生成吗？',
+        'copy_success': '已复制到剪贴板',
+        'copy_fail': '复制失败',
+        'export_success': '已保存到 {}',
+        'token_warning': '生成的文档大约包含 {} token，可能超过模型限制（128k）。是否继续？',
+        'token_estimate_failed': '无法估算 token 数，继续生成吗？',
+        'binary_skipped': '[二进制文件，已跳过: {}]',
+        'read_failed': '[读取失败: {}]',
+    },
+    'en': {
+        'window_title': 'repo2md - Project to Markdown',
+        'choose_folder': '📁 Choose Folder',
+        'no_folder': 'No folder selected',
+        'ext_filter': '🔍 Extension Filter',
+        'file_tree': '📂 Project Files (check files)',
+        'size_label': '📦 Total size: {}',
+        'generate': 'Generate Markdown',
+        'copy': '📋 Copy to Clipboard',
+        'export': '💾 Export as .md',
+        'search_placeholder': '🔎 Search files...',
+        'language': 'Language',
+        'scanning': 'Scanning files...',
+        'generating': 'Generating Markdown...',
+        'warning': 'Warning',
+        'no_selection': 'Please select at least one file',
+        'sensitive_warning': 'Selected files may contain sensitive information:\n{}\n\nContinue?',
+        'copy_success': 'Copied to clipboard',
+        'copy_fail': 'Copy failed',
+        'export_success': 'Saved to {}',
+        'token_warning': 'The generated document contains approximately {} tokens, which may exceed the model limit (128k). Continue?',
+        'token_estimate_failed': 'Unable to estimate token count. Continue?',
+        'binary_skipped': '[Binary file skipped: {}]',
+        'read_failed': '[Read failed: {}]',
+    }
+}
 
 # ==================== 工具函数 ====================
 def format_bytes(size):
@@ -85,6 +147,17 @@ def read_text_file(file_path):
         data = f.read()
         return data.decode('utf-8', errors='ignore')
 
+def estimate_tokens(text):
+    """估算 token 数，优先使用 tiktoken"""
+    if TIKTOKEN_AVAILABLE:
+        try:
+            enc = tiktoken.get_encoding("cl100k_base")  # GPT-4 编码
+            return len(enc.encode(text))
+        except:
+            pass
+    # 回退方案：按字符数/4 粗略估计（英文为主）
+    return len(text) // 4
+
 # ==================== 扫描线程 ====================
 class ScanThread(QThread):
     finished_scan = Signal(dict, list)  # {rel: (abs,size)}, extensions list
@@ -97,7 +170,6 @@ class ScanThread(QThread):
         file_map = {}
         extensions = set()
         for root, dirs, files in os.walk(self.root_path):
-            # 跳过隐藏目录
             dirs[:] = [d for d in dirs if not d.startswith('.')]
             for file in files:
                 if file.startswith('.'):
@@ -117,15 +189,17 @@ class GenerateThread(QThread):
     progress = Signal(str)      # 当前处理的文件
     result = Signal(str)        # 最终markdown内容
 
-    def __init__(self, root_path, selected_paths, file_map):
+    def __init__(self, root_path, selected_paths, file_map, lang):
         super().__init__()
         self.root_path = root_path
         self.selected_paths = selected_paths
         self.file_map = file_map
+        self.lang = lang  # 用于错误信息本地化
 
     def run(self):
         lines = []
         root_name = os.path.basename(self.root_path)
+        s = STRINGS[self.lang]
 
         lines.append(f"# 项目概览：{root_name}\n")
         tree = self._build_tree(self.selected_paths)
@@ -142,7 +216,7 @@ class GenerateThread(QThread):
 
                 is_bin, reason = is_binary_file(abs_path)
                 if is_bin:
-                    lines.append(f"### `{rel_path}`\n```\n[二进制文件，已跳过: {reason}]\n```\n")
+                    lines.append(f"### `{rel_path}`\n```\n{s['binary_skipped'].format(reason)}\n```\n")
                     continue
 
                 try:
@@ -151,7 +225,7 @@ class GenerateThread(QThread):
                     lang = ext if ext != '[无后缀]' else ''
                     lines.append(f"### `{rel_path}`\n```{lang}\n{content}\n```\n")
                 except Exception as e:
-                    lines.append(f"### `{rel_path}`\n```\n[读取失败: {e}]\n```\n")
+                    lines.append(f"### `{rel_path}`\n```\n{s['read_failed'].format(e)}\n```\n")
 
         self.result.emit('\n'.join(lines))
 
@@ -187,41 +261,84 @@ class GenerateThread(QThread):
         root_name = os.path.basename(self.root_path)
         return root_name + '/\n' + _render(tree_dict)
 
-# ==================== 扩展名过滤代理模型 ====================
-class ExtensionFilterProxy(QSortFilterProxyModel):
+# ==================== 扩展名+搜索过滤代理模型 ====================
+class FileFilterProxy(QSortFilterProxyModel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.allowed_extensions = None
+        self.search_text = ""
 
     def set_allowed_extensions(self, exts):
         self.allowed_extensions = set(exts) if exts is not None else None
         self.invalidateFilter()
 
+    def set_search_text(self, text):
+        self.search_text = text.strip().lower()
+        self.invalidateFilter()
+
     def filterAcceptsRow(self, source_row, source_parent):
-        if self.allowed_extensions is None:
-            return True
+        # 获取源模型索引
         model = self.sourceModel()
         index = model.index(source_row, 0, source_parent)
+
+        # 获取文件扩展名（如果是文件）
         ext = model.data(index, Qt.UserRole)
-        if ext is None:  # 目录始终显示
-            return True
-        return ext in self.allowed_extensions
+        # 检查扩展名过滤
+        if ext is not None and self.allowed_extensions is not None:
+            if ext not in self.allowed_extensions:
+                # 如果扩展名不通过，但如果是目录，仍需检查子节点
+                if model.hasChildren(index):
+                    # 递归检查子节点
+                    if self._has_accepted_child(index):
+                        return True
+                return False
+
+        # 检查搜索文本
+        if self.search_text:
+            file_name = model.data(index, Qt.DisplayRole)  # 获取显示文本（可能包含大小）
+            # 提取纯文件名（去除大小后缀）
+            if '(' in file_name and file_name.endswith(')'):
+                file_name = file_name[:file_name.rfind('(')].strip()
+            if self.search_text not in file_name.lower():
+                # 不匹配，但如果是目录，检查子节点
+                if model.hasChildren(index):
+                    if self._has_accepted_child(index):
+                        return True
+                return False
+
+        return True
+
+    def _has_accepted_child(self, parent_index):
+        """递归检查父索引下是否有任何子节点通过过滤"""
+        model = self.sourceModel()
+        for row in range(model.rowCount(parent_index)):
+            child_index = model.index(row, 0, parent_index)
+            if self.filterAcceptsRow(row, parent_index):
+                return True
+            # 如果子节点有子节点，继续递归
+            if model.hasChildren(child_index):
+                if self._has_accepted_child(child_index):
+                    return True
+        return False
 
 # ==================== 主窗口 ====================
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("repo2md - 项目转Markdown (暗色主题)")
-        self.resize(1000, 700)
-
-        # 应用GitHub暗色主题
-        self.apply_dark_theme()
-
+        self.current_lang = 'zh'  # 默认中文
         self.root_path = None
         self.file_map = {}
         self.selected_paths = []
         self.ext_list = []
         self._updating = False
+
+        self.setup_ui()
+        self.apply_dark_theme()
+        self.retranslate_ui()
+
+    def setup_ui(self):
+        self.setWindowTitle(STRINGS[self.current_lang]['window_title'])
+        self.resize(1000, 700)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -231,25 +348,46 @@ class MainWindow(QMainWindow):
         left_panel = QWidget()
         left_panel.setMaximumWidth(200)
         left_layout = QVBoxLayout(left_panel)
-        left_layout.addWidget(QLabel("🔍 扩展名筛选"))
+
+        self.ext_filter_label = QLabel()
+        left_layout.addWidget(self.ext_filter_label)
+
         self.ext_list_widget = QListWidget()
         self.ext_list_widget.setSelectionMode(QAbstractItemView.NoSelection)
         left_layout.addWidget(self.ext_list_widget)
+
         main_layout.addWidget(left_panel)
 
         # ===== 右侧主区域 =====
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
 
-        # 文件夹选择行
-        choose_layout = QHBoxLayout()
-        self.path_label = QLabel("未选择文件夹")
+        # 文件夹选择和语言切换行
+        top_layout = QHBoxLayout()
+        self.path_label = QLabel()
         self.path_label.setWordWrap(True)
-        self.choose_btn = QPushButton("📁 选择文件夹")
+        self.choose_btn = QPushButton()
         self.choose_btn.clicked.connect(self.choose_folder)
-        choose_layout.addWidget(self.path_label, 1)
-        choose_layout.addWidget(self.choose_btn)
-        right_layout.addLayout(choose_layout)
+
+        self.lang_combo = QComboBox()
+        self.lang_combo.addItems(['中文', 'English'])
+        self.lang_combo.currentIndexChanged.connect(self.on_language_changed)
+
+        top_layout.addWidget(self.path_label, 1)
+        top_layout.addWidget(self.choose_btn)
+        top_layout.addWidget(QLabel(STRINGS[self.current_lang]['language']))
+        top_layout.addWidget(self.lang_combo)
+        right_layout.addLayout(top_layout)
+
+        # 搜索框
+        search_layout = QHBoxLayout()
+        self.search_label = QLabel("🔎")
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText(STRINGS[self.current_lang]['search_placeholder'])
+        self.search_edit.textChanged.connect(self.on_search_text_changed)
+        search_layout.addWidget(self.search_label)
+        search_layout.addWidget(self.search_edit)
+        right_layout.addLayout(search_layout)
 
         # 垂直分割器
         splitter = QSplitter(Qt.Vertical)
@@ -258,11 +396,13 @@ class MainWindow(QMainWindow):
         tree_widget = QWidget()
         tree_layout = QVBoxLayout(tree_widget)
         tree_layout.setContentsMargins(0, 0, 0, 0)
-        tree_layout.addWidget(QLabel("📂 项目文件 (勾选所需文件)"))
+        self.tree_label = QLabel()
+        tree_layout.addWidget(self.tree_label)
+
         self.tree_view = QTreeView()
         self.tree_view.setHeaderHidden(True)
         self.tree_model = QStandardItemModel()
-        self.proxy_model = ExtensionFilterProxy()
+        self.proxy_model = FileFilterProxy()
         self.proxy_model.setSourceModel(self.tree_model)
         self.tree_view.setModel(self.proxy_model)
         self.tree_view.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -277,12 +417,12 @@ class MainWindow(QMainWindow):
 
         # 按钮栏
         info_layout = QHBoxLayout()
-        self.size_label = QLabel("📦 当前选中总大小: 0 B")
-        self.generate_btn = QPushButton("生成 Markdown")
+        self.size_label = QLabel()
+        self.generate_btn = QPushButton()
         self.generate_btn.clicked.connect(self.generate_markdown)
-        self.copy_btn = QPushButton("📋 复制到剪贴板")
+        self.copy_btn = QPushButton()
         self.copy_btn.clicked.connect(self.copy_to_clipboard)
-        self.export_btn = QPushButton("💾 导出为 .md")
+        self.export_btn = QPushButton()
         self.export_btn.clicked.connect(self.export_markdown)
         info_layout.addWidget(self.size_label, 1)
         info_layout.addWidget(self.generate_btn)
@@ -307,27 +447,22 @@ class MainWindow(QMainWindow):
         self.progress_dlg = None
 
     def apply_dark_theme(self):
-        """应用GitHub风格的暗色主题"""
-        # 使用 Fusion 风格
         QApplication.setStyle('Fusion')
-
-        # 设置调色板（基础）
         palette = QPalette()
-        palette.setColor(QPalette.Window, QColor(13, 17, 23))          # #0d1117
-        palette.setColor(QPalette.WindowText, QColor(201, 209, 217))  # #c9d1d9
-        palette.setColor(QPalette.Base, QColor(22, 27, 34))            # #161b22
-        palette.setColor(QPalette.AlternateBase, QColor(30, 36, 44))  # 稍亮
+        palette.setColor(QPalette.Window, QColor(13, 17, 23))
+        palette.setColor(QPalette.WindowText, QColor(201, 209, 217))
+        palette.setColor(QPalette.Base, QColor(22, 27, 34))
+        palette.setColor(QPalette.AlternateBase, QColor(30, 36, 44))
         palette.setColor(QPalette.ToolTipBase, QColor(22, 27, 34))
         palette.setColor(QPalette.ToolTipText, QColor(201, 209, 217))
         palette.setColor(QPalette.Text, QColor(201, 209, 217))
-        palette.setColor(QPalette.Button, QColor(33, 38, 45))          # #21262d
+        palette.setColor(QPalette.Button, QColor(33, 38, 45))
         palette.setColor(QPalette.ButtonText, QColor(201, 209, 217))
         palette.setColor(QPalette.BrightText, Qt.red)
-        palette.setColor(QPalette.Highlight, QColor(31, 111, 235))     # #1f6feb
+        palette.setColor(QPalette.Highlight, QColor(31, 111, 235))
         palette.setColor(QPalette.HighlightedText, Qt.white)
         self.setPalette(palette)
 
-        # 设置字体
         font = QFont()
         if sys.platform == 'win32':
             font.setFamily('Microsoft YaHei')
@@ -336,7 +471,7 @@ class MainWindow(QMainWindow):
         font.setPointSize(10)
         QApplication.setFont(font)
 
-        # 详细样式表微调
+        # 增大按钮样式
         self.setStyleSheet("""
             QTreeView {
                 background-color: #161b22;
@@ -348,12 +483,6 @@ class MainWindow(QMainWindow):
             }
             QTreeView::item:hover {
                 background-color: #2d333b;
-            }
-            QTreeView::branch:has-children:!has-siblings:closed,
-            QTreeView::branch:closed:has-children:has-siblings {
-                border-image: none;
-                image: none;
-                background: #161b22;
             }
             QListWidget {
                 background-color: #161b22;
@@ -374,7 +503,8 @@ class MainWindow(QMainWindow):
                 background-color: #21262d;
                 color: #c9d1d9;
                 border: 1px solid #30363d;
-                padding: 5px 12px;
+                padding: 8px 16px;   /* 调大按钮 */
+                font-size: 11pt;
                 border-radius: 4px;
             }
             QPushButton:hover {
@@ -388,18 +518,58 @@ class MainWindow(QMainWindow):
                 background-color: #161b22;
                 color: #6e7681;
             }
+            QLineEdit {
+                background-color: #161b22;
+                color: #c9d1d9;
+                border: 1px solid #30363d;
+                padding: 4px;
+                border-radius: 4px;
+            }
             QLabel {
                 color: #c9d1d9;
             }
-            QProgressDialog {
-                background-color: #0d1117;
+            QComboBox {
+                background-color: #21262d;
                 color: #c9d1d9;
+                border: 1px solid #30363d;
+                padding: 4px;
+                border-radius: 4px;
+            }
+            QComboBox::drop-down {
+                border: none;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 4px solid #c9d1d9;
+                width: 0;
+                height: 0;
             }
         """)
 
-    # ---------- 以下功能代码与之前完全相同 ----------
+    def retranslate_ui(self):
+        """更新界面文本"""
+        s = STRINGS[self.current_lang]
+        self.setWindowTitle(s['window_title'])
+        self.ext_filter_label.setText(s['ext_filter'])
+        self.tree_label.setText(s['file_tree'])
+        self.choose_btn.setText(s['choose_folder'])
+        self.path_label.setText(s['no_folder'] if not self.root_path else self.root_path)
+        self.generate_btn.setText(s['generate'])
+        self.copy_btn.setText(s['copy'])
+        self.export_btn.setText(s['export'])
+        self.search_edit.setPlaceholderText(s['search_placeholder'])
+        self.size_label.setText(s['size_label'].format("0 B"))
+        # 更新按钮状态等
+
+    def on_language_changed(self, index):
+        self.current_lang = 'zh' if index == 0 else 'en'
+        self.retranslate_ui()
+
+    # ---------- 文件夹选择 ----------
     def choose_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "选择项目根目录")
+        folder = QFileDialog.getExistingDirectory(self, STRINGS[self.current_lang]['choose_folder'])
         if not folder:
             return
         self.root_path = folder
@@ -407,7 +577,7 @@ class MainWindow(QMainWindow):
         self.start_scan()
 
     def start_scan(self):
-        self.progress_dlg = QProgressDialog("扫描文件中...", None, 0, 0, self)
+        self.progress_dlg = QProgressDialog(STRINGS[self.current_lang]['scanning'], None, 0, 0, self)
         self.progress_dlg.setWindowModality(Qt.WindowModal)
         self.progress_dlg.show()
 
@@ -438,12 +608,11 @@ class MainWindow(QMainWindow):
         root_item = QStandardItem(root_name + '/')
         root_item.setEditable(False)
         root_item.setCheckable(True)
-        root_item.setData(None, Qt.UserRole)  # 目录无扩展名
+        root_item.setData(None, Qt.UserRole)
         self.tree_model.appendRow(root_item)
 
         path_to_item = {'': root_item}
 
-        # 收集所有目录路径
         all_paths = list(self.file_map.keys())
         dirs = set()
         for p in all_paths:
@@ -452,7 +621,6 @@ class MainWindow(QMainWindow):
                 dir_path = '/'.join(parts[:i])
                 dirs.add(dir_path)
 
-        # 添加目录节点
         for d in sorted(dirs, key=lambda x: (x.count('/'), x)):
             if d in path_to_item:
                 continue
@@ -466,7 +634,6 @@ class MainWindow(QMainWindow):
             parent_item.appendRow(dir_item)
             path_to_item[d] = dir_item
 
-        # 添加文件节点
         for rel_path, (abs_path, size) in self.file_map.items():
             parts = rel_path.split('/')
             parent_path = '/'.join(parts[:-1])
@@ -476,13 +643,14 @@ class MainWindow(QMainWindow):
             file_item = QStandardItem(display_text)
             file_item.setEditable(False)
             file_item.setCheckable(True)
-            file_item.setData(get_extension(rel_path), Qt.UserRole)   # 扩展名
-            file_item.setData(rel_path, Qt.UserRole + 1)              # 相对路径
-            file_item.setData(size, Qt.UserRole + 2)                  # 文件大小
+            file_item.setData(get_extension(rel_path), Qt.UserRole)
+            file_item.setData(rel_path, Qt.UserRole + 1)
+            file_item.setData(size, Qt.UserRole + 2)
             parent_item.appendRow(file_item)
 
         self.tree_view.expandToDepth(1)
 
+    # ---------- 扩展名筛选 ----------
     def on_extension_filter_changed(self, item):
         allowed = []
         for i in range(self.ext_list_widget.count()):
@@ -491,6 +659,11 @@ class MainWindow(QMainWindow):
                 allowed.append(it.text())
         self.proxy_model.set_allowed_extensions(allowed if allowed else None)
 
+    # ---------- 搜索 ----------
+    def on_search_text_changed(self, text):
+        self.proxy_model.set_search_text(text)
+
+    # ---------- 手动维护父子节点状态 ----------
     def on_item_changed(self, item):
         if self._updating:
             return
@@ -565,7 +738,8 @@ class MainWindow(QMainWindow):
         self.selected_paths = []
         root = self.tree_model.invisibleRootItem()
         total = self._accumulate_selected(root, self.selected_paths)
-        self.size_label.setText(f"📦 当前选中总大小: {format_bytes(total)}")
+        s = STRINGS[self.current_lang]
+        self.size_label.setText(s['size_label'].format(format_bytes(total)))
 
     def _accumulate_selected(self, parent_item, paths):
         total = 0
@@ -582,28 +756,30 @@ class MainWindow(QMainWindow):
                         paths.append(rel_path)
         return total
 
+    # ---------- 生成 Markdown ----------
     def generate_markdown(self):
+        s = STRINGS[self.current_lang]
         if not self.selected_paths:
-            QMessageBox.warning(self, "提示", "请至少勾选一个文件")
+            QMessageBox.warning(self, s['warning'], s['no_selection'])
             return
 
         sensitive = [p for p in self.selected_paths if any(k in p.lower() for k in SENSITIVE_KEYWORDS)]
         if sensitive:
-            msg = "选中的文件包含可能敏感的信息：\n" + "\n".join(sensitive[:5])
-            msg += "\n\n确定要继续生成吗？"
-            reply = QMessageBox.question(self, "敏感文件警告", msg,
+            msg = s['sensitive_warning'].format("\n".join(sensitive[:5]))
+            reply = QMessageBox.question(self, s['warning'], msg,
                                          QMessageBox.Yes | QMessageBox.No)
             if reply != QMessageBox.Yes:
                 return
 
-        self.progress_dlg = QProgressDialog("生成 Markdown 中...", None, 0, 0, self)
+        self.progress_dlg = QProgressDialog(s['generating'], None, 0, 0, self)
         self.progress_dlg.setWindowModality(Qt.WindowModal)
         self.progress_dlg.show()
 
         self.gen_thread = GenerateThread(
             self.root_path,
             self.selected_paths,
-            self.file_map
+            self.file_map,
+            self.current_lang
         )
         self.gen_thread.progress.connect(self.on_generate_progress)
         self.gen_thread.result.connect(self.on_generate_finished)
@@ -617,28 +793,40 @@ class MainWindow(QMainWindow):
         self.progress_dlg.close()
         self.output_edit.setPlainText(markdown)
 
+        # Token 估算与警告
+        token_count = estimate_tokens(markdown)
+        s = STRINGS[self.current_lang]
+        if token_count > 128000:  # 约 128k 阈值
+            msg = s['token_warning'].format(token_count)
+            reply = QMessageBox.warning(self, s['warning'], msg,
+                                        QMessageBox.Yes | QMessageBox.No)
+            # 即使警告，内容已生成，不阻止用户复制/导出
+
+    # ---------- 复制/导出 ----------
     def copy_to_clipboard(self):
         text = self.output_edit.toPlainText()
+        s = STRINGS[self.current_lang]
         if not text.strip():
-            QMessageBox.warning(self, "提示", "没有可复制的内容")
+            QMessageBox.warning(self, s['warning'], s['no_selection'])
             return
         clipboard = QApplication.clipboard()
         clipboard.setText(text)
-        QMessageBox.information(self, "完成", "已复制到剪贴板")
+        QMessageBox.information(self, s['copy_success'], s['copy_success'])
 
     def export_markdown(self):
         text = self.output_edit.toPlainText()
+        s = STRINGS[self.current_lang]
         if not text.strip():
-            QMessageBox.warning(self, "提示", "没有可导出的内容")
+            QMessageBox.warning(self, s['warning'], s['no_selection'])
             return
         default_name = f"{os.path.basename(self.root_path) if self.root_path else 'project'}.md"
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "保存 Markdown 文件", default_name, "Markdown (*.md)"
+            self, s['export'], default_name, "Markdown (*.md)"
         )
         if file_path:
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(text)
-            QMessageBox.information(self, "完成", f"已保存到 {file_path}")
+            QMessageBox.information(self, s['export_success'], s['export_success'].format(file_path))
 
 # ==================== 启动 ====================
 if __name__ == '__main__':
