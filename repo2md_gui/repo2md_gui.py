@@ -270,11 +270,11 @@ class FileFilterProxy(QSortFilterProxyModel):
 
     def set_allowed_extensions(self, exts):
         self.allowed_extensions = set(exts) if exts is not None else None
-        self.invalidateFilter()
+        self.invalidate()  # 修复弃用警告
 
     def set_search_text(self, text):
         self.search_text = text.strip().lower()
-        self.invalidateFilter()
+        self.invalidate()  # 修复弃用警告
 
     def filterAcceptsRow(self, source_row, source_parent):
         # 获取源模型索引
