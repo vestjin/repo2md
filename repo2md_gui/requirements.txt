@@ -1,6 +1,7 @@
 certifi==2026.1.4
 charset-normalizer==3.4.4
 idna==3.11
+Markdown==3.10.2
 PySide6==6.10.2
 PySide6_Addons==6.10.2
 PySide6_Essentials==6.10.2

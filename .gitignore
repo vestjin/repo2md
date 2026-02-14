@@ -1,4 +1,6 @@
 
 /tmp/
 repo2md_gui/.venv/**
-*.exe
+repo2md_gui/build/**
+repo2md_gui/dist/**
+**.spec
