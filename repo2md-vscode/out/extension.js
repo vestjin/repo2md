@@ -184,6 +184,46 @@ function activate(context) {
         panel.webview.html = getWebviewContent();
         // 当前文件列表（用于生成时）
         let currentFiles = [];
+        // 防抖定时器
+        let refreshTimer;
+        // 刷新函数：重新扫描并发送更新
+        const refreshFiles = async () => {
+            try {
+                currentFiles = await readDirectoryRecursive(rootPath, rootPath);
+                const fileList = currentFiles.map(f => ({
+                    path: f.path,
+                    size: f.size,
+                    extension: getExtension(f.path)
+                }));
+                panel.webview.postMessage({
+                    command: 'folderData',
+                    projectName,
+                    files: fileList
+                });
+            }
+            catch (err) {
+                vscode.window.showErrorMessage(`自动刷新失败: ${err.message}`);
+            }
+        };
+        // 创建文件监听器
+        const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(rootPath, '**/*'));
+        // 监听所有文件变动事件，防抖后刷新
+        const debouncedRefresh = () => {
+            if (refreshTimer) {
+                clearTimeout(refreshTimer);
+            }
+            refreshTimer = setTimeout(refreshFiles, 500); // 500ms 防抖
+        };
+        watcher.onDidChange(debouncedRefresh);
+        watcher.onDidCreate(debouncedRefresh);
+        watcher.onDidDelete(debouncedRefresh);
+        // 面板关闭时清理监听器和定时器
+        panel.onDidDispose(() => {
+            watcher.dispose();
+            if (refreshTimer) {
+                clearTimeout(refreshTimer);
+            }
+        });
         // 处理来自 Webview 的消息
         panel.webview.onDidReceiveMessage(async (message) => {
             switch (message.command) {
@@ -310,7 +350,14 @@ function getWebviewContent() {
         outline: none;
         border-color: var(--vscode-focusBorder, #007acc);
     }
-    .project-info { font-size: 1.2rem; margin-bottom: 1rem; padding: 0.5rem 1rem; background-color: var(--vscode-badge-background, #f0f0f0); color: var(--vscode-badge-foreground, #333); border-radius: 4px; border: 1px solid var(--vscode-widget-border, transparent);
+    .project-info {
+        font-size: 1.2rem;
+        margin-bottom: 1rem;
+        padding: 0.5rem 1rem;
+        background-color: var(--vscode-badge-background, #f0f0f0);
+        color: var(--vscode-badge-foreground, #333);
+        border-radius: 4px;
+        border: 1px solid var(--vscode-widget-border, transparent);
     }
     button { padding: 0.5rem 1rem; margin: 0.5rem 0.5rem 0.5rem 0; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; }
     button:hover { background-color: #218838; }
@@ -341,7 +388,7 @@ function getWebviewContent() {
   <h1>📘 项目转 Markdown</h1>
 
   <div class="project-info">
-    <span id="project-name">正在加载项目...</span>
+      <span id="project-name">正在加载项目...</span>
   </div>
 
   <div>
@@ -378,6 +425,7 @@ function getWebviewContent() {
       let allExtensions = new Set();
       let extensionFilters = new Set();
       let projectName = "";
+      let prevSelected = [];
 
       // 工具函数
       function getExtension(path) {
@@ -436,6 +484,17 @@ function getWebviewContent() {
           }
         });
         updateSelectedInfo();
+      }
+
+      // 恢复之前的选中状态（在刷新后）
+      function restoreSelected() {
+          const tree = $('#tree-container').jstree(true);
+          if (!tree) return;
+          const toSelect = prevSelected.filter(path => fileMap[path]);
+          if (toSelect.length > 0) {
+              tree.select_node(toSelect);
+          }
+          prevSelected = []; // 清空缓存，避免重复恢复
       }
 
       function updateSelectedInfo() {
@@ -508,7 +567,10 @@ function getWebviewContent() {
             core: { data: nodes, themes: { dots: true, icons: true }, multiple: true },
             plugins: ["checkbox"]
           })
-          .on("ready.jstree", function () { applyExtensionFilter(); })
+          .on("ready.jstree", function () { 
+              applyExtensionFilter(); 
+              restoreSelected(); 
+          })
           .on("changed.jstree", function () { updateSelectedInfo(); });
       }
 
@@ -517,6 +579,8 @@ function getWebviewContent() {
         const msg = event.data;
         switch (msg.command) {
           case 'folderData':
+            // 在重建之前保存当前选中状态
+            prevSelected = selectedPaths;
             // 接收文件列表
             projectName = msg.projectName;
             document.getElementById('project-name').textContent = \`项目: \${projectName}\`;
