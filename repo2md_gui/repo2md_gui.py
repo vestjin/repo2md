@@ -1,14 +1,23 @@
 import sys
 import os
+import re
 import math
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QTreeView, QTextEdit, QLabel, QMessageBox,
     QFileDialog, QListWidget, QListWidgetItem, QProgressDialog,
-    QAbstractItemView, QSplitter, QLineEdit, QComboBox
+    QAbstractItemView, QSplitter, QLineEdit, QComboBox, QCheckBox
 )
-from PySide6.QtCore import Qt, QThread, Signal, QSortFilterProxyModel, QModelIndex
-from PySide6.QtGui import QStandardItemModel, QStandardItem, QClipboard, QFont, QPalette, QColor
+from PySide6.QtCore import Qt, QThread, Signal, QSortFilterProxyModel, QModelIndex, QFileSystemWatcher, QTimer
+from PySide6.QtGui import QStandardItemModel, QStandardItem, QClipboard, QFont, QPalette, QColor, QTextDocument
+from PySide6.QtPrintSupport import QPrinter
+
+# 尝试导入 markdown 库（用于 HTML 导出）
+try:
+    import markdown
+    MARKDOWN_AVAILABLE = True
+except ImportError:
+    MARKDOWN_AVAILABLE = False
 
 # 尝试导入 tiktoken
 try:
@@ -35,6 +44,14 @@ SENSITIVE_KEYWORDS = [
     'password', 'secret', 'token', 'credential', 'aws', 'private'
 ]
 
+# 敏感内容正则模式（用于替换）
+SENSITIVE_PATTERNS = [
+    (re.compile(r'(?i)(password|passwd|pwd)\s*[=:]\s*\S+'), r'\1 = [REDACTED]'),
+    (re.compile(r'(?i)(api[_-]?key|secret|token)\s*[=:]\s*\S+'), r'\1 = [REDACTED]'),
+    (re.compile(r'-----BEGIN (RSA|DSA|EC|OPENSSH) PRIVATE KEY-----.*?-----END \1 PRIVATE KEY-----', re.DOTALL), '[REDACTED PRIVATE KEY]'),
+    (re.compile(r'[A-Za-z0-9+/]{40,}={0,2}'), '[REDACTED BASE64]'),
+]
+
 # 多语言字符串
 STRINGS = {
     'zh': {
@@ -46,9 +63,12 @@ STRINGS = {
         'size_label': '📦 当前选中总大小: {}',
         'generate': '生成 Markdown',
         'copy': '📋 复制到剪贴板',
-        'export': '💾 导出为 .md',
+        'export_md': '💾 导出为 .md',
+        'export_html': '🌐 导出为 HTML',
+        'export_pdf': '📄 导出为 PDF',
         'search_placeholder': '🔎 搜索文件名...',
         'language': '语言',
+        'sensitive_filter': '🔒 启用敏感内容过滤（自动替换密钥）',
         'scanning': '扫描文件中...',
         'generating': '生成 Markdown 中...',
         'warning': '提示',
@@ -57,10 +77,13 @@ STRINGS = {
         'copy_success': '已复制到剪贴板',
         'copy_fail': '复制失败',
         'export_success': '已保存到 {}',
+        'export_html_missing': '请安装 markdown 库以导出 HTML：pip install markdown',
+        'export_pdf_success': 'PDF 已保存到 {}',
         'token_warning': '生成的文档大约包含 {} token，可能超过模型限制（128k）。是否继续？',
         'token_estimate_failed': '无法估算 token 数，继续生成吗？',
         'binary_skipped': '[二进制文件，已跳过: {}]',
         'read_failed': '[读取失败: {}]',
+        'auto_refresh': '🔄 自动刷新已启用',
     },
     'en': {
         'window_title': 'repo2md - Project to Markdown',
@@ -71,9 +94,12 @@ STRINGS = {
         'size_label': '📦 Total size: {}',
         'generate': 'Generate Markdown',
         'copy': '📋 Copy to Clipboard',
-        'export': '💾 Export as .md',
+        'export_md': '💾 Export as .md',
+        'export_html': '🌐 Export as HTML',
+        'export_pdf': '📄 Export as PDF',
         'search_placeholder': '🔎 Search files...',
         'language': 'Language',
+        'sensitive_filter': '🔒 Enable sensitive content filtering (auto-redact keys)',
         'scanning': 'Scanning files...',
         'generating': 'Generating Markdown...',
         'warning': 'Warning',
@@ -82,10 +108,13 @@ STRINGS = {
         'copy_success': 'Copied to clipboard',
         'copy_fail': 'Copy failed',
         'export_success': 'Saved to {}',
+        'export_html_missing': 'Please install markdown library to export HTML: pip install markdown',
+        'export_pdf_success': 'PDF saved to {}',
         'token_warning': 'The generated document contains approximately {} tokens, which may exceed the model limit (128k). Continue?',
         'token_estimate_failed': 'Unable to estimate token count. Continue?',
         'binary_skipped': '[Binary file skipped: {}]',
         'read_failed': '[Read failed: {}]',
+        'auto_refresh': '🔄 Auto-refresh enabled',
     }
 }
 
@@ -147,15 +176,20 @@ def read_text_file(file_path):
         data = f.read()
         return data.decode('utf-8', errors='ignore')
 
+def redact_sensitive_content(text):
+    """替换文本中的敏感信息"""
+    for pattern, replacement in SENSITIVE_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
 def estimate_tokens(text):
     """估算 token 数，优先使用 tiktoken"""
     if TIKTOKEN_AVAILABLE:
         try:
-            enc = tiktoken.get_encoding("cl100k_base")  # GPT-4 编码
+            enc = tiktoken.get_encoding("cl100k_base")
             return len(enc.encode(text))
         except:
             pass
-    # 回退方案：按字符数/4 粗略估计（英文为主）
     return len(text) // 4
 
 # ==================== 扫描线程 ====================
@@ -189,12 +223,13 @@ class GenerateThread(QThread):
     progress = Signal(str)      # 当前处理的文件
     result = Signal(str)        # 最终markdown内容
 
-    def __init__(self, root_path, selected_paths, file_map, lang):
+    def __init__(self, root_path, selected_paths, file_map, lang, redact_sensitive):
         super().__init__()
         self.root_path = root_path
         self.selected_paths = selected_paths
         self.file_map = file_map
-        self.lang = lang  # 用于错误信息本地化
+        self.lang = lang
+        self.redact_sensitive = redact_sensitive
 
     def run(self):
         lines = []
@@ -221,6 +256,8 @@ class GenerateThread(QThread):
 
                 try:
                     content = read_text_file(abs_path)
+                    if self.redact_sensitive:
+                        content = redact_sensitive_content(content)
                     ext = get_extension(rel_path)
                     lang = ext if ext != '[无后缀]' else ''
                     lines.append(f"### `{rel_path}`\n```{lang}\n{content}\n```\n")
@@ -270,37 +307,29 @@ class FileFilterProxy(QSortFilterProxyModel):
 
     def set_allowed_extensions(self, exts):
         self.allowed_extensions = set(exts) if exts is not None else None
-        self.invalidate()  # 修复弃用警告
+        self.invalidate()
 
     def set_search_text(self, text):
         self.search_text = text.strip().lower()
-        self.invalidate()  # 修复弃用警告
+        self.invalidate()
 
     def filterAcceptsRow(self, source_row, source_parent):
-        # 获取源模型索引
         model = self.sourceModel()
         index = model.index(source_row, 0, source_parent)
 
-        # 获取文件扩展名（如果是文件）
         ext = model.data(index, Qt.UserRole)
-        # 检查扩展名过滤
         if ext is not None and self.allowed_extensions is not None:
             if ext not in self.allowed_extensions:
-                # 如果扩展名不通过，但如果是目录，仍需检查子节点
                 if model.hasChildren(index):
-                    # 递归检查子节点
                     if self._has_accepted_child(index):
                         return True
                 return False
 
-        # 检查搜索文本
         if self.search_text:
-            file_name = model.data(index, Qt.DisplayRole)  # 获取显示文本（可能包含大小）
-            # 提取纯文件名（去除大小后缀）
+            file_name = model.data(index, Qt.DisplayRole)
             if '(' in file_name and file_name.endswith(')'):
                 file_name = file_name[:file_name.rfind('(')].strip()
             if self.search_text not in file_name.lower():
-                # 不匹配，但如果是目录，检查子节点
                 if model.hasChildren(index):
                     if self._has_accepted_child(index):
                         return True
@@ -309,13 +338,11 @@ class FileFilterProxy(QSortFilterProxyModel):
         return True
 
     def _has_accepted_child(self, parent_index):
-        """递归检查父索引下是否有任何子节点通过过滤"""
         model = self.sourceModel()
         for row in range(model.rowCount(parent_index)):
             child_index = model.index(row, 0, parent_index)
             if self.filterAcceptsRow(row, parent_index):
                 return True
-            # 如果子节点有子节点，继续递归
             if model.hasChildren(child_index):
                 if self._has_accepted_child(child_index):
                     return True
@@ -325,12 +352,22 @@ class FileFilterProxy(QSortFilterProxyModel):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.current_lang = 'zh'  # 默认中文
+        self.current_lang = 'zh'
         self.root_path = None
         self.file_map = {}
         self.selected_paths = []
         self.ext_list = []
         self._updating = False
+        self.fs_watcher = QFileSystemWatcher(self)
+        self.fs_watcher.directoryChanged.connect(self.on_directory_changed)
+        self.fs_watcher.fileChanged.connect(self.on_file_changed)
+
+        # 用于防抖的定时器
+        self.refresh_timer = QTimer()
+        self.refresh_timer.setSingleShot(True)
+        self.refresh_timer.timeout.connect(self.do_refresh)
+
+        self.pending_refresh = False  # 标记有待处理的刷新
 
         self.setup_ui()
         self.apply_dark_theme()
@@ -389,6 +426,22 @@ class MainWindow(QMainWindow):
         search_layout.addWidget(self.search_edit)
         right_layout.addLayout(search_layout)
 
+        # 文件树标签与敏感内容过滤复选框放在同一行
+        tree_header_layout = QHBoxLayout()
+        self.tree_label = QLabel()
+        # 放大字体
+        font = self.tree_label.font()
+        font.setPointSize(11)
+        self.tree_label.setFont(font)
+        tree_header_layout.addWidget(self.tree_label)
+
+        self.sensitive_checkbox = QCheckBox()
+        self.sensitive_checkbox.setFont(font)  # 同样放大
+        tree_header_layout.addWidget(self.sensitive_checkbox)
+        tree_header_layout.addStretch()  # 右侧弹性空间
+
+        right_layout.addLayout(tree_header_layout)
+
         # 垂直分割器
         splitter = QSplitter(Qt.Vertical)
 
@@ -396,9 +449,6 @@ class MainWindow(QMainWindow):
         tree_widget = QWidget()
         tree_layout = QVBoxLayout(tree_widget)
         tree_layout.setContentsMargins(0, 0, 0, 0)
-        self.tree_label = QLabel()
-        tree_layout.addWidget(self.tree_label)
-
         self.tree_view = QTreeView()
         self.tree_view.setHeaderHidden(True)
         self.tree_model = QStandardItemModel()
@@ -422,12 +472,18 @@ class MainWindow(QMainWindow):
         self.generate_btn.clicked.connect(self.generate_markdown)
         self.copy_btn = QPushButton()
         self.copy_btn.clicked.connect(self.copy_to_clipboard)
-        self.export_btn = QPushButton()
-        self.export_btn.clicked.connect(self.export_markdown)
+        self.export_md_btn = QPushButton()
+        self.export_md_btn.clicked.connect(self.export_markdown)
+        self.export_html_btn = QPushButton()
+        self.export_html_btn.clicked.connect(self.export_html)
+        self.export_pdf_btn = QPushButton()
+        self.export_pdf_btn.clicked.connect(self.export_pdf)
         info_layout.addWidget(self.size_label, 1)
         info_layout.addWidget(self.generate_btn)
         info_layout.addWidget(self.copy_btn)
-        info_layout.addWidget(self.export_btn)
+        info_layout.addWidget(self.export_md_btn)
+        info_layout.addWidget(self.export_html_btn)
+        info_layout.addWidget(self.export_pdf_btn)
         output_layout.addLayout(info_layout)
 
         self.output_edit = QTextEdit()
@@ -471,7 +527,6 @@ class MainWindow(QMainWindow):
         font.setPointSize(10)
         QApplication.setFont(font)
 
-        # 增大按钮样式
         self.setStyleSheet("""
             QTreeView {
                 background-color: #161b22;
@@ -503,7 +558,7 @@ class MainWindow(QMainWindow):
                 background-color: #21262d;
                 color: #c9d1d9;
                 border: 1px solid #30363d;
-                padding: 8px 16px;   /* 调大按钮 */
+                padding: 8px 16px;
                 font-size: 11pt;
                 border-radius: 4px;
             }
@@ -535,21 +590,12 @@ class MainWindow(QMainWindow):
                 padding: 4px;
                 border-radius: 4px;
             }
-            QComboBox::drop-down {
-                border: none;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 4px solid #c9d1d9;
-                width: 0;
-                height: 0;
+            QCheckBox {
+                color: #c9d1d9;
             }
         """)
 
     def retranslate_ui(self):
-        """更新界面文本"""
         s = STRINGS[self.current_lang]
         self.setWindowTitle(s['window_title'])
         self.ext_filter_label.setText(s['ext_filter'])
@@ -558,41 +604,82 @@ class MainWindow(QMainWindow):
         self.path_label.setText(s['no_folder'] if not self.root_path else self.root_path)
         self.generate_btn.setText(s['generate'])
         self.copy_btn.setText(s['copy'])
-        self.export_btn.setText(s['export'])
+        self.export_md_btn.setText(s['export_md'])
+        self.export_html_btn.setText(s['export_html'])
+        self.export_pdf_btn.setText(s['export_pdf'])
         self.search_edit.setPlaceholderText(s['search_placeholder'])
         self.size_label.setText(s['size_label'].format("0 B"))
-        # 更新按钮状态等
+        self.sensitive_checkbox.setText(s['sensitive_filter'])
 
     def on_language_changed(self, index):
         self.current_lang = 'zh' if index == 0 else 'en'
         self.retranslate_ui()
 
-    # ---------- 文件夹选择 ----------
+    # ---------- 文件夹选择与自动刷新 ----------
     def choose_folder(self):
         folder = QFileDialog.getExistingDirectory(self, STRINGS[self.current_lang]['choose_folder'])
         if not folder:
             return
         self.root_path = folder
         self.path_label.setText(folder)
+        self.setup_file_watcher()
         self.start_scan()
 
-    def start_scan(self):
+    def setup_file_watcher(self):
+        """设置文件系统监视器"""
+        if not self.root_path:
+            return
+        # 清除旧监视
+        if self.fs_watcher.directories():
+            self.fs_watcher.removePaths(self.fs_watcher.directories())
+        if self.fs_watcher.files():
+            self.fs_watcher.removePaths(self.fs_watcher.files())
+        # 监视根目录及其所有子目录（确保能捕获深层变化）
+        for root, dirs, files in os.walk(self.root_path):
+            # 跳过隐藏目录（如 .git）
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            try:
+                self.fs_watcher.addPath(root)
+            except Exception:
+                pass  # 某些目录可能无法监视，忽略
+        # 也可以只监视根目录，但为了可靠性，监视所有子目录
+
+    def on_directory_changed(self, path):
+        """目录变化时触发延迟刷新"""
+        if self.root_path and os.path.exists(self.root_path):
+            self.pending_refresh = True
+            self.refresh_timer.start(500)  # 500ms 防抖
+
+    def on_file_changed(self, path):
+        """文件变化时触发延迟刷新"""
+        self.on_directory_changed(path)
+
+    def do_refresh(self):
+        """执行实际的刷新扫描"""
+        if not self.pending_refresh:
+            return
+        self.pending_refresh = False
+        # 保存当前选中状态
+        old_selected = self.selected_paths.copy()
+        self.start_scan(restore_selected=old_selected)
+
+    def start_scan(self, restore_selected=None):
         self.progress_dlg = QProgressDialog(STRINGS[self.current_lang]['scanning'], None, 0, 0, self)
         self.progress_dlg.setWindowModality(Qt.WindowModal)
         self.progress_dlg.show()
 
         self.scan_thread = ScanThread(self.root_path)
-        self.scan_thread.finished_scan.connect(self.on_scan_finished)
+        self.scan_thread.finished_scan.connect(lambda fm, ext: self.on_scan_finished(fm, ext, restore_selected))
         self.scan_thread.start()
 
-    def on_scan_finished(self, file_map, extensions):
+    def on_scan_finished(self, file_map, extensions, restore_selected=None):
         self.progress_dlg.close()
         self.file_map = file_map
         self.ext_list = extensions
 
+        # 重建树模型
         self.tree_model.clear()
         self.ext_list_widget.clear()
-
         self.build_tree_model()
 
         for ext in extensions:
@@ -603,6 +690,56 @@ class MainWindow(QMainWindow):
 
         self.proxy_model.set_allowed_extensions(extensions)
 
+        # 尝试恢复选中状态
+        if restore_selected:
+            self.restore_selected_paths(restore_selected)
+
+    def restore_selected_paths(self, paths):
+        """根据路径列表恢复选中状态"""
+        # 首先清除所有选中
+        root = self.tree_model.invisibleRootItem()
+        self._set_all_checked(root, False)
+
+        # 然后逐个路径选中
+        for rel_path in paths:
+            self._check_path(rel_path)
+
+        # 更新三态和大小
+        self.update_selected_size()
+        # 触发父节点三态更新
+        root = self.tree_model.invisibleRootItem()
+        self._update_parent_tristate(root)
+
+    def _set_all_checked(self, parent_item, checked):
+        """递归设置所有文件节点的选中状态"""
+        for row in range(parent_item.rowCount()):
+            child = parent_item.child(row)
+            if child.hasChildren():
+                self._set_all_checked(child, checked)
+            else:
+                child.setCheckState(Qt.Checked if checked else Qt.Unchecked)
+
+    def _check_path(self, rel_path):
+        """根据相对路径选中文件节点"""
+        parts = rel_path.split('/')
+        current = self.tree_model.invisibleRootItem()
+        for part in parts:
+            found = None
+            for row in range(current.rowCount()):
+                child = current.child(row)
+                display = child.data(Qt.DisplayRole)
+                # 目录显示为 part/，文件显示为 part (size)
+                if display.startswith(part + '/') or display.startswith(part + ' ('):
+                    found = child
+                    break
+            if not found:
+                return
+            current = found
+        # 找到文件节点，选中它
+        if current and not current.hasChildren():
+            current.setCheckState(Qt.Checked)
+
+    # ---------- 构建树模型 ----------
     def build_tree_model(self):
         root_name = os.path.basename(self.root_path)
         root_item = QStandardItem(root_name + '/')
@@ -779,7 +916,8 @@ class MainWindow(QMainWindow):
             self.root_path,
             self.selected_paths,
             self.file_map,
-            self.current_lang
+            self.current_lang,
+            self.sensitive_checkbox.isChecked()
         )
         self.gen_thread.progress.connect(self.on_generate_progress)
         self.gen_thread.result.connect(self.on_generate_finished)
@@ -793,14 +931,11 @@ class MainWindow(QMainWindow):
         self.progress_dlg.close()
         self.output_edit.setPlainText(markdown)
 
-        # Token 估算与警告
         token_count = estimate_tokens(markdown)
         s = STRINGS[self.current_lang]
-        if token_count > 128000:  # 约 128k 阈值
+        if token_count > 128000:
             msg = s['token_warning'].format(token_count)
-            reply = QMessageBox.warning(self, s['warning'], msg,
-                                        QMessageBox.Yes | QMessageBox.No)
-            # 即使警告，内容已生成，不阻止用户复制/导出
+            QMessageBox.warning(self, s['warning'], msg, QMessageBox.Ok)
 
     # ---------- 复制/导出 ----------
     def copy_to_clipboard(self):
@@ -821,11 +956,68 @@ class MainWindow(QMainWindow):
             return
         default_name = f"{os.path.basename(self.root_path) if self.root_path else 'project'}.md"
         file_path, _ = QFileDialog.getSaveFileName(
-            self, s['export'], default_name, "Markdown (*.md)"
+            self, s['export_md'], default_name, "Markdown (*.md)"
         )
         if file_path:
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(text)
+            QMessageBox.information(self, s['export_success'], s['export_success'].format(file_path))
+
+    def export_html(self):
+        text = self.output_edit.toPlainText()
+        s = STRINGS[self.current_lang]
+        if not text.strip():
+            QMessageBox.warning(self, s['warning'], s['no_selection'])
+            return
+
+        if not MARKDOWN_AVAILABLE:
+            QMessageBox.warning(self, s['warning'], s['export_html_missing'])
+            return
+
+        default_name = f"{os.path.basename(self.root_path) if self.root_path else 'project'}.html"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, s['export_html'], default_name, "HTML (*.html)"
+        )
+        if file_path:
+            html = markdown.markdown(text, extensions=['fenced_code', 'tables'])
+            # 添加简单样式
+            styled_html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body {{ background: #0d1117; color: #c9d1d9; font-family: sans-serif; padding: 20px; }}
+pre {{ background: #161b22; padding: 10px; border-radius: 5px; overflow: auto; }}
+code {{ font-family: monospace; }}
+</style>
+</head>
+<body>
+{html}
+</body>
+</html>"""
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(styled_html)
+            QMessageBox.information(self, s['export_success'], s['export_success'].format(file_path))
+
+    def export_pdf(self):
+        text = self.output_edit.toPlainText()
+        s = STRINGS[self.current_lang]
+        if not text.strip():
+            QMessageBox.warning(self, s['warning'], s['no_selection'])
+            return
+
+        default_name = f"{os.path.basename(self.root_path) if self.root_path else 'project'}.pdf"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, s['export_pdf'], default_name, "PDF (*.pdf)"
+        )
+        if file_path:
+            # 使用 QTextDocument 生成 PDF
+            doc = QTextDocument()
+            doc.setPlainText(text)  # 直接纯文本，也可以转换为 HTML 更美观
+            printer = QPrinter()
+            printer.setOutputFormat(QPrinter.PdfFormat)
+            printer.setOutputFileName(file_path)
+            doc.print_(printer)
             QMessageBox.information(self, s['export_success'], s['export_success'].format(file_path))
 
 # ==================== 启动 ====================
