@@ -17,8 +17,36 @@ const BINARY_EXTENSIONS = new Set([
     'psd', 'ai', 'eps',
     'bin', 'dat', 'db', 'sqlite', 'cur', 'icns'
 ]);
-// 默认忽略的目录名
-const IGNORED_DIRECTORIES = new Set(['node_modules', '.git', 'out', 'dist', 'build', '.vscode']);
+// 默认忽略的目录名（涵盖常见构建输出、依赖、版本控制、IDE配置、缓存等）
+const IGNORED_DIRECTORIES = new Set([
+    // 版本控制
+    '.git', '.svn', '.hg', '.cvs',
+    // 依赖包
+    'node_modules', 'bower_components', 'jspm_packages', 'vendor', 'composer', 'packages',
+    // 构建输出
+    'out', 'dist', 'build', 'target', 'bin', 'obj', 'output', 'release', 'debug',
+    // 缓存和临时文件
+    'cache', '.cache', 'tmp', 'temp', 'logs', 'log', 'coverage', '.nyc_output',
+    '.parcel-cache', '.cache-loader', '.serverless', '.serverless_nextjs',
+    '.pytest_cache', '.mypy_cache', '.ipynb_checkpoints', '.sass-cache',
+    '.scannerwork', '.sonar', '.trunk', '.docusaurus', '.expo',
+    // IDE配置
+    '.vscode', '.idea', '.vs', '.history', '.settings', '.project', '.classpath',
+    '.factorypath', '.recommenders', '.sts4-cache', '.vertx', '.mvn',
+    // 框架/工具特定
+    '.next', '.nuxt', '.output', '.vercel', '.netlify', '.now', '.cache',
+    '.dart_tool', '.packages', '.pub-cache', '.gradle', '.m2', '.ivy2',
+    '.terraform', '.serverless', '.serverless_nextjs',
+    // 其他常见忽略项
+    '.venv', 'venv', 'env', // Python虚拟环境
+    '__pycache__', // Python字节码缓存
+    '.pytest_cache', '.mypy_cache', '.hypothesis', // Python测试缓存
+    '.spyderproject', '.spyproject', '.ropeproject', // Python IDE
+    '.dart_tool', '.flutter-plugins', '.flutter-plugins-dependencies', // Flutter
+    '.history', '.backup', // 备份文件目录
+    '.trash', '.recycle', // 回收站
+    'coverage', '.nyc_output', // 测试覆盖率
+]);
 // 获取文件扩展名
 function getExtension(filePath) {
     const parts = filePath.split('/');
@@ -63,8 +91,10 @@ async function readDirectoryRecursive(dirPath, basePath) {
         const fullPath = path.join(dirPath, entry.name);
         const relativePath = path.relative(basePath, fullPath).replace(/\\/g, '/');
         if (entry.isDirectory()) {
-            // 可以忽略某些目录，如 node_modules
-            // if (entry.name === 'node_modules' || entry.name === '.git') continue;
+            // 跳过忽略的目录
+            if (IGNORED_DIRECTORIES.has(entry.name)) {
+                continue;
+            }
             const subResults = await readDirectoryRecursive(fullPath, basePath);
             results.push(...subResults);
         }
