@@ -61,7 +61,7 @@
 欢迎提交 Issue 或 Pull Request！请确保代码通过 TypeScript 编译，并遵循现有风格。
 
 ### 📄 许可证
-MIT
+GPL
 
 ---
 
@@ -122,4 +122,4 @@ Because this extension is only published on **Open VSX**, use the method:
 Issues and pull requests are welcome! Please ensure code compiles with TypeScript and follows the existing style.
 
 ### 📄 License
-MIT
+GPL

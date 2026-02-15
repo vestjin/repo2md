@@ -3,13 +3,21 @@
   "publisher": "vestjin",
   "displayName": "Repo to Markdown",
   "description": "Convert a folder into a Markdown file with directory tree and file contents",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
     "Other"
   ],
+  "keywords": [                               
+    "markdown",
+    "export",
+    "documentation",
+    "directory tree",
+    "file content"
+  ],
+  "icon": "icon.png",
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -33,5 +41,10 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/vestjin/repo2md.git"
-  }
+  },
+  "bugs": {                                    
+    "url": "https://github.com/vestjin/repo2md/issues"
+  },
+  "homepage": "https://github.com/vestjin/repo2md", 
+  "license": "GPL-3.0-only"  
 }
