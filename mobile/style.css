@@ -559,3 +559,37 @@ header h1 {
         filter: brightness(0.8);
     }
 }
+/* 增大行高，保证触摸高度 */
+.jstree-default .jstree-node {
+    min-height: 44px;
+    line-height: 44px;
+}
+
+/* 扩大文本点击区域 */
+.jstree-default .jstree-anchor {
+    padding: 10px 8px;   /* 上下增加内边距 */
+    display: inline-block;
+    box-sizing: border-box;
+}
+
+/* 扩大复选框点击区域 */
+.jstree-default .jstree-checkbox {
+    width: 24px;
+    height: 24px;
+    background-size: 24px;  /* 调整背景图大小 */
+    margin-right: 8px;
+    position: relative;
+    /* 使用伪元素扩展点击区域 */
+}
+.jstree-default .jstree-checkbox::after {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: -8px;
+    right: -8px;
+    bottom: -8px;
+}
+.jstree-default .jstree-anchor,
+.jstree-default .jstree-checkbox {
+    touch-action: manipulation;
+}
