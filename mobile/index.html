@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <title>REPO2MD - 项目转Markdown</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jstree@3.3.12/dist/themes/default/style.min.css"/>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📘 项目转Markdown</h1>
+      <p class="subtitle">支持 ZIP/TAR/GZ 等多种压缩格式</p>
+    </header>
+
+    <!-- 压缩包上传区域 -->
+    <div class="upload-section">
+      <input type="file" id="archive-upload" accept=".zip,.tar,.gz,.tgz,.tar.gz,.gzip" style="display: none;"/>
+      <button id="upload-btn" class="upload-btn">
+        <span class="btn-icon">📦</span>
+        <span class="btn-text">上传压缩包</span>
+        <span class="btn-hint">支持 ZIP/TAR/GZ</span>
+      </button>
+      
+      <!-- 文件信息显示 -->
+      <div id="file-info" class="file-info" style="display: none;">
+        <div class="info-item">
+          <span class="label">文件名：</span>
+          <span id="filename" class="value"></span>
+        </div>
+        <div class="info-item">
+          <span class="label">文件大小：</span>
+          <span id="filesize" class="value"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 解压进度 -->
+    <div id="extract-progress" class="progress-bar" style="display: none;">
+      <div class="progress-content">
+        <span class="progress-icon">⏳</span>
+        <span id="extract-status">正在解压...</span>
+      </div>
+      <div class="progress-detail">
+        <span id="extract-count">0</span> 个文件
+      </div>
+    </div>
+
+    <!-- 后缀筛选 -->
+    <div id="filter-section" class="filter-section" style="display: none;">
+      <div class="section-header" id="filter-toggle">
+        <span class="section-title">🔍 后缀筛选</span>
+        <span class="toggle-icon">▼</span>
+      </div>
+      <div id="extension-filters" class="filter-content"></div>
+    </div>
+
+    <!-- 文件树 -->
+    <div id="tree-section" class="tree-section" style="display: none;">
+      <div class="section-header">
+        <span class="section-title">📂 文件列表</span>
+        <span id="size-display" class="size-info">已选: 0 B</span>
+      </div>
+      <div id="tree-container"></div>
+    </div>
+
+    <!-- 操作按钮 -->
+    <div id="action-section" class="action-section" style="display: none;">
+      <button id="generate-btn" class="action-btn primary">
+        <span>📝</span> 生成 Markdown
+      </button>
+      <div class="btn-group">
+        <button id="copy-btn" class="action-btn secondary">
+          <span>📋</span> 复制
+        </button>
+        <button id="export-btn" class="action-btn secondary">
+          <span>💾</span> 导出
+        </button>
+        <button id="share-btn" class="action-btn secondary" style="display: none;">
+          <span>📤</span> 分享
+        </button>
+      </div>
+    </div>
+
+    <!-- 生成进度 -->
+    <div id="generate-progress" class="progress-bar" style="display: none;">
+      <div class="progress-content">
+        <span class="progress-icon">⏳</span>
+        <span id="generate-status">正在生成...</span>
+      </div>
+    </div>
+
+    <!-- Markdown 输出 -->
+    <div id="output-section" class="output-section" style="display: none;">
+      <div class="section-header">
+        <span class="section-title">📄 Markdown 输出</span>
+        <span id="char-count" class="char-count">0 字符</span>
+      </div>
+      <textarea id="markdown-output" placeholder="Markdown 会显示在这里..." readonly></textarea>
+    </div>
+
+    <!-- 使用说明 -->
+    <div class="help-section">
+      <div class="help-title">💡 使用说明</div>
+      <div class="help-content">
+        <p>1. 在电脑上将项目文件夹压缩为 ZIP/TAR 格式</p>
+        <p>2. 将压缩包传输到手机（微信/网盘/数据线）</p>
+        <p>3. 点击"上传压缩包"选择文件</p>
+        <p>4. 勾选需要的文件，生成 Markdown</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 依赖库 -->
+  <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jstree@3.3.12/dist/jstree.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>

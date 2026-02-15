@@ -1,0 +1,523 @@
+/* ==================== 全局重置 ==================== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  padding: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.container {
+  max-width: 100%;
+  padding: 16px;
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+
+/* ==================== 头部 ==================== */
+header {
+  text-align: center;
+  padding: 20px 0;
+  color: white;
+}
+
+header h1 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.subtitle {
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+/* ==================== 上传区域 ==================== */
+.upload-section {
+  margin: 20px 0;
+}
+
+.upload-btn {
+  width: 100%;
+  padding: 32px 20px;
+  background: white;
+  border: 3px dashed #667eea;
+  border-radius: 16px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.upload-btn:active {
+  transform: scale(0.98);
+  background: #f8f9fa;
+}
+
+.btn-icon {
+  font-size: 48px;
+}
+
+.btn-text {
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+}
+
+.btn-hint {
+  font-size: 13px;
+  color: #666;
+}
+
+.file-info {
+  background: white;
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.info-item:last-child {
+  border-bottom: none;
+}
+
+.info-item .label {
+  color: #666;
+  font-size: 14px;
+}
+
+.info-item .value {
+  color: #333;
+  font-weight: 500;
+  font-size: 14px;
+  word-break: break-all;
+  text-align: right;
+  max-width: 60%;
+}
+
+/* ==================== 进度条 ==================== */
+.progress-bar {
+  background: white;
+  border-radius: 12px;
+  padding: 16px;
+  margin: 16px 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.progress-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  color: #333;
+}
+
+.progress-icon {
+  font-size: 20px;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.progress-detail {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #666;
+}
+
+/* ==================== 筛选区域 ==================== */
+.filter-section {
+  background: white;
+  border-radius: 12px;
+  margin: 16px 0;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.section-title {
+  font-weight: 600;
+  font-size: 15px;
+  color: #333;
+}
+
+.toggle-icon {
+  font-size: 12px;
+  color: #666;
+  transition: transform 0.3s;
+}
+
+.filter-content {
+  padding: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.filter-content.collapsed {
+  display: none;
+}
+
+.filter-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #f8f9fa;
+  border-radius: 20px;
+  font-size: 13px;
+  color: #333;
+  border: 1px solid #e9ecef;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+}
+
+.filter-item:active {
+  background: #e9ecef;
+}
+
+.filter-item.active {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+.filter-item input {
+  display: none;
+}
+
+/* ==================== 文件树 ==================== */
+.tree-section {
+  background: white;
+  border-radius: 12px;
+  margin: 16px 0;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.size-info {
+  font-size: 13px;
+  color: #667eea;
+  font-weight: 600;
+}
+
+#tree-container {
+  padding: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* jsTree 移动端样式优化 */
+.jstree-default .jstree-anchor {
+  padding: 4px 8px !important;
+  font-size: 14px !important;
+  line-height: 24px !important;
+  height: auto !important;
+}
+
+.jstree-default .jstree-icon {
+  font-size: 16px !important;
+}
+
+.jstree-default .jstree-checkbox {
+  width: 18px !important;
+  height: 18px !important;
+  margin-right: 4px !important;
+}
+
+.jstree-default .jstree-node {
+  margin-left: 12px !important;
+}
+
+.jstree-default .jstree-children {
+  margin-left: 0 !important;
+}
+
+/* ==================== 操作按钮 ==================== */
+.action-section {
+  margin: 20px 0;
+}
+
+.action-btn {
+  width: 100%;
+  padding: 16px;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.action-btn:active {
+  transform: scale(0.98);
+}
+
+.action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.action-btn.primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  margin-bottom: 12px;
+}
+
+.action-btn.secondary {
+  background: white;
+  color: #333;
+}
+
+.btn-group {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.btn-group.three-col {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+/* ==================== 输出区域 ==================== */
+.output-section {
+  background: white;
+  border-radius: 12px;
+  margin: 16px 0;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.char-count {
+  font-size: 13px;
+  color: #666;
+}
+
+#markdown-output {
+  width: 100%;
+  min-height: 300px;
+  max-height: 500px;
+  padding: 16px;
+  border: none;
+  border-top: 1px solid #e9ecef;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+
+/* ==================== 帮助说明 ==================== */
+.help-section {
+  background: rgba(255,255,255,0.95);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 20px 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.help-title {
+  font-weight: 600;
+  font-size: 15px;
+  color: #333;
+  margin-bottom: 12px;
+}
+
+.help-content {
+  font-size: 13px;
+  color: #666;
+  line-height: 1.8;
+}
+
+.help-content p {
+  margin-bottom: 4px;
+}
+
+/* ==================== 弹窗提示 ==================== */
+.toast {
+  position: fixed;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.8);
+  color: white;
+  padding: 12px 24px;
+  border-radius: 24px;
+  font-size: 14px;
+  z-index: 1000;
+  animation: fadeInUp 0.3s ease;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 20px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* ==================== 加载动画 ==================== */
+.loading {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255,255,255,0.95);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loading-text {
+  margin-top: 16px;
+  font-size: 15px;
+  color: #333;
+}
+
+/* ==================== 响应式适配 ==================== */
+@media (max-width: 375px) {
+  .container {
+    padding: 12px;
+  }
+  
+  header h1 {
+    font-size: 20px;
+  }
+  
+  .btn-icon {
+    font-size: 40px;
+  }
+  
+  .btn-text {
+    font-size: 16px;
+  }
+  
+  .action-btn {
+    padding: 14px;
+    font-size: 15px;
+  }
+}
+
+@media (min-width: 768px) {
+  .container {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+}
+
+/* ==================== 深色模式支持 ==================== */
+@media (prefers-color-scheme: dark) {
+  body {
+    background: linear-gradient(135deg, #2d1b69 0%, #4a1a4a 100%);
+  }
+  
+  .upload-btn,
+  .file-info,
+  .progress-bar,
+  .filter-section,
+  .tree-section,
+  .output-section,
+  .action-btn.secondary,
+  .help-section {
+    background: #1a1a1a;
+    color: #fff;
+    border-color: #333;
+  }
+  
+  .section-header {
+    background: #252525;
+    border-color: #333;
+  }
+  
+  .section-title {
+    color: #fff;
+  }
+  
+  .filter-item {
+    background: #252525;
+    color: #ccc;
+    border-color: #333;
+  }
+  
+  .filter-item.active {
+    background: #667eea;
+    color: white;
+  }
+  
+  #markdown-output {
+    background: #1a1a1a;
+    color: #ccc;
+  }
+  
+  .info-item .label,
+  .info-item .value,
+  .help-content {
+    color: #aaa;
+  }
+  
+  .info-item .value {
+    color: #fff;
+  }
+}
