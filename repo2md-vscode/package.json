@@ -1,5 +1,6 @@
 {
   "name": "repo2md",
+  "publisher": "vestjin",
   "displayName": "Repo to Markdown",
   "description": "Convert a folder into a Markdown file with directory tree and file contents",
   "version": "0.0.1",
@@ -28,5 +29,9 @@
     "@types/node": "^20.x",
     "@types/vscode": "^1.85.0",
     "typescript": "^5.3.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vestjin/repo2md.git"
   }
 }
