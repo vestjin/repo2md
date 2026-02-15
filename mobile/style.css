@@ -521,3 +521,41 @@ header h1 {
     color: #fff;
   }
 }
+/* ==================== 文件树悬停与选中颜色 ==================== */
+.jstree-default .jstree-hovered {
+    background: #f0f0f0 !important;  /* 悬停背景色（浅灰） */
+    border-radius: 4px;
+    box-shadow: none;
+    transition: background 0.2s ease;
+}
+
+.jstree-default .jstree-clicked {
+    background: #e0e7ff !important;  /* 选中背景色（淡紫蓝） */
+    border-radius: 4px;
+    box-shadow: none;
+}
+
+/* 复选框样式（可选，使复选框与整体更协调） */
+.jstree-default .jstree-checkbox {
+    background-position: -40px -20px; /* 未选中 */
+}
+.jstree-default .jstree-checkbox.jstree-undetermined {
+    background-position: -20px -20px; /* 部分选中 */
+}
+.jstree-default .jstree-checkbox.jstree-checked {
+    background-position: 0px -20px;   /* 已选中 */
+}
+
+/* ==================== 深色模式适配 ==================== */
+@media (prefers-color-scheme: dark) {
+    .jstree-default .jstree-hovered {
+        background: #333 !important;      /* 深色悬停 */
+    }
+    .jstree-default .jstree-clicked {
+        background: #4a1a6e !important;   /* 深色选中 */
+    }
+    /* 深色复选框（保持可见性） */
+    .jstree-default .jstree-checkbox {
+        filter: brightness(0.8);
+    }
+}
