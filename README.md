@@ -6,6 +6,7 @@
 - [x] 🌐 Web 版
 - [x] 🐍 Python GUI 版
 - [x] ⚡ VS Code 插件版-发布到Open vsx
+- [x] 🤖 Android Web www.jinmajue.top/repo2md/mobile/ 压缩包上传
 
 ### 🚧 开发中
 
@@ -13,7 +14,7 @@
 ### 📋 待开发
 
 - [ ] 💻 CLI 命令行版
-- [ ] 🤖 Android App
+
 
 ----
 
