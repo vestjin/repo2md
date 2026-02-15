@@ -5,7 +5,7 @@
 ### ✅ 已完成
 - [x] 🌐 Web 版
 - [x] 🐍 Python GUI 版
-- [x] ⚡ VS Code 插件版-准备发布中
+- [x] ⚡ VS Code 插件版-发布到Open vsx
 
 ### 🚧 开发中
 
