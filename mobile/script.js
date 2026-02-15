@@ -6,6 +6,9 @@ let extensionFilters = new Set();
 let projectName = "";
 let extractCount = 0;
 
+// ==================== 常量定义 ====================
+const BATCH_UPDATE = 50; // 批量更新UI的阈值
+
 // ==================== 二进制扩展名黑名单 ====================
 const BINARY_EXTENSIONS = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp', 'svg',
@@ -228,10 +231,8 @@ async function extractArchive(file) {
 
 // ==================== 处理压缩包 ====================
 async function handleArchiveUpload(file) {
-  // 显示文件信息
-  document.getElementById('file-info').style.display = 'block';
-  document.getElementById('filename').textContent = file.name;
-  document.getElementById('filesize').textContent = formatBytes(file.size);
+  // 隐藏文件信息区域（用户要求移除）
+  document.getElementById('file-info').style.display = 'none';
   
   // 重置状态
   extractCount = 0;
@@ -248,53 +249,101 @@ async function handleArchiveUpload(file) {
     // 解压文件
     const files = await extractArchive(file);
     
-    // 获取项目名（从第一个文件的路径）
+    // 路径预处理，提取公共顶级目录
+    let candidateName = '';
     if (files.length > 0) {
       const firstPath = files[0].name;
       const parts = firstPath.split('/');
-      projectName = parts[0] || file.name.replace(/\.(zip|tar|gz|tgz|tar\.gz)$/i, '');
+      candidateName = parts[0];
+    }
+
+    // 检查是否所有文件都以候选名开头（或是候选名本身）
+    let useCandidate = true;
+    if (candidateName) {
+      for (const f of files) {
+        if (!f.name.startsWith(candidateName + '/') && f.name !== candidateName) {
+          useCandidate = false;
+          break;
+        }
+      }
+    } else {
+      useCandidate = false;
+    }
+
+    const newFileMap = {};
+    const newExtensions = new Set();
+    let newExtractCount = 0;
+
+    if (useCandidate) {
+      projectName = candidateName;
+      for (const [index, extractedFile] of files.entries()) {
+        let relativePath = extractedFile.name;
+        if (relativePath.startsWith(projectName + '/')) {
+          relativePath = relativePath.substring(projectName.length + 1);
+        } // 若等于 projectName，则作为根目录下的文件
+
+        const blob = new Blob([extractedFile.content]);
+        const fileObj = new File([blob], relativePath.split('/').pop(), {
+          lastModified: Date.now(),
+          type: 'application/octet-stream'
+        });
+        fileObj.size = extractedFile.size;
+        newFileMap[relativePath] = fileObj;
+
+        const ext = getExtension(relativePath);
+        newExtensions.add(ext);
+
+        newExtractCount++;
+
+        // 批量更新UI
+        if ((index + 1) % BATCH_UPDATE === 0 || index === files.length - 1) {
+          document.getElementById('extract-count').textContent = newExtractCount;
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
     } else {
       projectName = file.name.replace(/\.(zip|tar|gz|tgz|tar\.gz)$/i, '');
+      for (const [index, extractedFile] of files.entries()) {
+        const relativePath = extractedFile.name;
+        const blob = new Blob([extractedFile.content]);
+        const fileObj = new File([blob], relativePath.split('/').pop(), {
+          lastModified: Date.now(),
+          type: 'application/octet-stream'
+        });
+        fileObj.size = extractedFile.size;
+        newFileMap[relativePath] = fileObj;
+
+        const ext = getExtension(relativePath);
+        newExtensions.add(ext);
+
+        newExtractCount++;
+
+        if ((index + 1) % BATCH_UPDATE === 0 || index === files.length - 1) {
+          document.getElementById('extract-count').textContent = newExtractCount;
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
     }
-    
-    // 构建文件映射
-    for (const extractedFile of files) {
-      const relativePath = extractedFile.name;
-      
-      // 创建 Blob 对象
-      const blob = new Blob([extractedFile.content]);
-      
-      // 创建 File 对象（兼容原逻辑）
-      const fileObj = new File([blob], relativePath.split('/').pop(), {
-        lastModified: Date.now(),
-        type: 'application/octet-stream'
-      });
-      
-      // 添加 size 属性（原逻辑需要）
-      fileObj.size = extractedFile.size;
-      
-      fileMap[relativePath] = fileObj;
-      
-      // 收集后缀
-      const ext = getExtension(relativePath);
-      allExtensions.add(ext);
-      
-      // 更新进度
-      extractCount++;
-      document.getElementById('extract-count').textContent = extractCount;
-      
-      // 让 UI 更新
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
-    
+
+    // 更新全局变量
+    fileMap = newFileMap;
+    allExtensions = newExtensions;
+    extractCount = newExtractCount;
+
     progressEl.style.display = 'none';
+    
+    // 显示加载提示，准备构建树
+    showLoading('正在加载文件列表...');
+    await new Promise(resolve => setTimeout(resolve, 0)); // 确保动画显示
     
     // 渲染后缀筛选
     extensionFilters = new Set(allExtensions);
     renderExtensionFilters();
     
-    // 构建文件树
+    // 构建文件树（扁平节点列表）
     buildTree();
+    
+    hideLoading();
     
     // 显示其他区域
     document.getElementById('filter-section').style.display = 'block';
@@ -311,6 +360,7 @@ async function handleArchiveUpload(file) {
     
   } catch (error) {
     progressEl.style.display = 'none';
+    hideLoading();
     console.error(error);
     showToast('❌ 解压失败：' + error.message);
   }
@@ -358,6 +408,7 @@ function applyExtensionFilter() {
   const tree = $('#tree-container').jstree(true);
   if (!tree) return;
 
+  // 获取所有文件节点
   const allFileNodes = $('#tree-container [data-file="true"]');
 
   allFileNodes.each((_, el) => {
@@ -389,28 +440,14 @@ function updateSelectedInfo() {
   document.getElementById("size-display").textContent = `已选: ${formatBytes(totalBytes)}`;
 }
 
-// ==================== 构建文件树 ====================
+// ==================== 构建文件树（扁平节点列表）====================
 function buildTree() {
-  const tree = {};
-
-  Object.entries(fileMap).forEach(([path, file]) => {
-    const parts = path.split('/');
-    let current = tree;
-
-    parts.forEach((part, idx) => {
-      if (!current[part]) {
-        current[part] = { __children: {}, __file: null };
-      }
-      if (idx === parts.length - 1) {
-        current[part].__file = file;
-      }
-      current = current[part].__children;
-    });
-  });
-
-  const nodes = [];
   const rootId = projectName || '项目';
+  const nodes = [];
+  const nodeMap = new Set(); // 记录已添加的节点ID，防止重复
 
+  // 1. 添加根节点
+  nodeMap.add(rootId);
   nodes.push({
     id: rootId,
     parent: '#',
@@ -418,38 +455,67 @@ function buildTree() {
     li_attr: { "data-file": "false", "data-ext": "" }
   });
 
-  function recurse(obj, parentPath) {
-    const sortedEntries = Object.entries(obj).sort(([aName, aData], [bName, bData]) => {
-      const aIsDir = !aData.__file;
-      const bIsDir = !bData.__file;
-      if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
-      return aName.localeCompare(bName, undefined, { sensitivity: 'base' });
+  // 2. 收集所有目录路径（带斜杠）
+  const dirPaths = new Set();
+  Object.keys(fileMap).forEach(path => {
+    const parts = path.split('/');
+    let dir = '';
+    for (let i = 0; i < parts.length - 1; i++) {
+      dir = dir ? dir + '/' + parts[i] : parts[i];
+      dirPaths.add(dir + '/');
+    }
+  });
+
+  // 3. 按路径长度排序，确保父目录先添加
+  const sortedDirs = Array.from(dirPaths).sort((a, b) => a.split('/').length - b.split('/').length);
+  sortedDirs.forEach(dirId => {
+    if (nodeMap.has(dirId)) return;
+    // 获取目录名（去除末尾斜杠后取最后一段）
+    const name = dirId.substring(0, dirId.length - 1).split('/').pop();
+    // 确定父节点ID
+    let parentId;
+    if (dirId === rootId + '/') {
+      parentId = rootId; // 根目录下的子目录，父节点为根节点
+    } else {
+      // 去掉最后一级，得到父目录ID
+      const parentDir = dirId.substring(0, dirId.lastIndexOf('/', dirId.length - 2) + 1);
+      parentId = parentDir || rootId;
+    }
+    nodeMap.add(dirId);
+    nodes.push({
+      id: dirId,
+      parent: parentId,
+      text: name,
+      icon: "jstree-folder",
+      li_attr: { "data-file": "false", "data-ext": "" }
     });
+  });
 
-    sortedEntries.forEach(([name, data]) => {
-      const currentPath = parentPath === rootId ? name : `${parentPath}/${name}`;
-      const isFile = !!data.__file;
-
-      const node = {
-        id: currentPath,
-        parent: parentPath,
-        text: isFile ? `${name} (${formatBytes(data.__file.size)})` : name,
-        icon: isFile ? "jstree-file" : undefined,
-        li_attr: {
-          "data-file": isFile ? "true" : "false",
-          "data-ext": isFile ? getExtension(currentPath) : ""
-        }
-      };
-      nodes.push(node);
-
-      if (data.__children && Object.keys(data.__children).length > 0) {
-        recurse(data.__children, currentPath);
+  // 4. 添加文件节点
+  Object.keys(fileMap).forEach(path => {
+    if (nodeMap.has(path)) return;
+    const parts = path.split('/');
+    const name = parts[parts.length - 1];
+    let parentId;
+    if (parts.length === 1) {
+      parentId = rootId;
+    } else {
+      parentId = parts.slice(0, -1).join('/') + '/';
+    }
+    nodeMap.add(path);
+    nodes.push({
+      id: path,
+      parent: parentId,
+      text: `${name} (${formatBytes(fileMap[path].size)})`,
+      icon: "jstree-file",
+      li_attr: {
+        "data-file": "true",
+        "data-ext": getExtension(path)
       }
     });
-  }
+  });
 
-  recurse(tree, rootId);
-
+  // 初始化 jsTree
   $('#tree-container')
     .jstree('destroy')
     .empty()
@@ -472,7 +538,7 @@ function buildTree() {
     });
 }
 
-// ==================== 生成目录树 ====================
+// ==================== 生成目录树（用于Markdown）====================
 function generateDirectoryTree() {
   const filteredTree = {};
 
