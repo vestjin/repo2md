@@ -9,10 +9,10 @@ let scanCount = 0;
 const BINARY_EXTENSIONS = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp',
   'mp4', 'mp3', 'avi', 'mov', 'wmv', 'flv',
-  'pdf', 'xls', 'xlsx', 'ppt', 'pptx',
+  'pdf', 'xls', 'xlsx', 'ppt', 'pptx', 'docx', 'doc', 
   'zip', 'rar', '7z', 'tar', 'gz',
   'exe', 'dll', 'so', 'dylib',
-  'iso', 'img', 'docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt',
+  'iso', 'img', 'txt',
   'woff', 'woff2', 'ttf', 'eot',
   'psd', 'ai', 'eps', 'pkl', 'db',
   'bin', 'dat', 'db', 'sqlite', 'ico', 'cur', 'icns'
@@ -20,7 +20,7 @@ const BINARY_EXTENSIONS = new Set([
 // ==================== 自动过滤规则 ====================
 const IGNORE_DIR_NAMES = new Set([
   '.git', '.svn', '.hg',          // 版本控制
-  '__pycache__', 'venv', '.venv',                 // Python
+  '__pycache__', 'venv', '.venv', '.pytest_cache',                 // Python
   'node_modules',                 // Node.js
   'target',                       // Java / Maven
   'bin', 'obj',                   // C# / C++ 输出
@@ -32,7 +32,7 @@ const IGNORE_DIR_NAMES = new Set([
 
 const IGNORE_FILE_EXTENSIONS = new Set([
   'o', 'obj', 'exe', 'dll', 'so', 'dylib',   // 编译产物
-  'pyc', 'pyo', 'pkl', 'db',                               // Python 字节码
+  'pyc', 'pyo', 'pkl', 'db', 'gitignore'                             // Python 字节码
   'class',                                    // Java 字节码
   'log', 'tmp', 'swp', 'swo',                 // 临时文件
   'DS_Store', 'csv', 'md',                                   // macOS 元数据
