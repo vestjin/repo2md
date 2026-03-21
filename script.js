@@ -12,13 +12,63 @@ const BINARY_EXTENSIONS = new Set([
   'pdf', 'xls', 'xlsx', 'ppt', 'pptx',
   'zip', 'rar', '7z', 'tar', 'gz',
   'exe', 'dll', 'so', 'dylib',
-  'iso', 'img',
+  'iso', 'img', 'docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt',
   'woff', 'woff2', 'ttf', 'eot',
-  'psd', 'ai', 'eps',
+  'psd', 'ai', 'eps', 'pkl', 'db',
   'bin', 'dat', 'db', 'sqlite', 'ico', 'cur', 'icns'
+]);
+// ==================== 自动过滤规则 ====================
+const IGNORE_DIR_NAMES = new Set([
+  '.git', '.svn', '.hg',          // 版本控制
+  '__pycache__', 'venv', '.venv',                 // Python
+  'node_modules',                 // Node.js
+  'target',                       // Java / Maven
+  'bin', 'obj',                   // C# / C++ 输出
+  'build', 'dist',                // 常见构建目录
+  '.idea', '.vscode',             // IDE 配置
+  'vendor',                       // Go vendor / PHP
+  'out',                           // 其他输出
+]);
+
+const IGNORE_FILE_EXTENSIONS = new Set([
+  'o', 'obj', 'exe', 'dll', 'so', 'dylib',   // 编译产物
+  'pyc', 'pyo', 'pkl', 'db',                               // Python 字节码
+  'class',                                    // Java 字节码
+  'log', 'tmp', 'swp', 'swo',                 // 临时文件
+  'DS_Store', 'csv', 'md',                                   // macOS 元数据
+]);
+
+const IGNORE_FILE_NAMES = new Set([
+  '.DS_Store', 'Thumbs.db', 'desktop.ini'
 ]);
 
 // ==================== 工具函数 ====================
+/**
+ * 判断文件或目录是否应被自动过滤
+ * @param {string} relativePath 相对路径（如 "src/main.js" 或 "node_modules/..."）
+ * @param {boolean} isDirectory 是否为目录
+ * @returns {boolean} true 表示忽略
+ */
+function isIgnored(relativePath, isDirectory = false) {
+  const parts = relativePath.split('/');
+  // 检查每个路径组件（目录名）是否在忽略目录列表中
+  for (let i = 0; i < parts.length; i++) {
+    if (IGNORE_DIR_NAMES.has(parts[i])) {
+      return true;
+    }
+  }
+  // 文件：额外检查文件名与扩展名
+  if (!isDirectory) {
+    const fileName = parts[parts.length - 1];
+    if (IGNORE_FILE_NAMES.has(fileName)) return true;
+    const dotIdx = fileName.lastIndexOf('.');
+    if (dotIdx !== -1) {
+      const ext = fileName.substring(dotIdx + 1).toLowerCase();
+      if (IGNORE_FILE_EXTENSIONS.has(ext)) return true;
+    }
+  }
+  return false;
+}
 function getExtension(path) {
   const parts = path.split('/');
   const file = parts[parts.length - 1];
@@ -122,12 +172,27 @@ async function pickDirectoryModern() {
 async function walkDirectory(dirHandle, basePath) {
   for await (const entry of dirHandle.values()) {
     const fullPath = basePath ? `${basePath}/${entry.name}` : entry.name;
-    if (entry.kind === 'file') {
+
+    if (entry.kind === 'directory') {
+      // 目录过滤：如果目录名在忽略列表中，直接跳过该目录
+      if (isIgnored(fullPath, true)) {
+        continue;
+      }
+      // 递归遍历子目录
+      await walkDirectory(entry, fullPath);
+    } else if (entry.kind === 'file') {
+      // 文件过滤
+      if (isIgnored(fullPath, false)) {
+        continue;
+      }
+
       const file = await entry.getFile();
       fileMap[fullPath] = file;
+
       const ext = getExtension(fullPath);
       allExtensions.add(ext);
-      // 更新进度
+
+      // 更新扫描进度
       scanCount++;
       const progressEl = document.getElementById('scan-progress');
       const countSpan = document.getElementById('scan-count');
@@ -137,8 +202,6 @@ async function walkDirectory(dirHandle, basePath) {
         // 主动让出主线程，避免长时间阻塞渲染
         await new Promise(resolve => setTimeout(resolve, 0));
       }
-    } else if (entry.kind === 'directory') {
-      await walkDirectory(entry, fullPath);
     }
   }
 }
