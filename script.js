@@ -15,12 +15,12 @@ const BINARY_EXTENSIONS = new Set([
   'iso', 'img', 'txt',
   'woff', 'woff2', 'ttf', 'eot',
   'psd', 'ai', 'eps', 'pkl', 'db',
-  'bin', 'dat', 'db', 'sqlite', 'ico', 'cur', 'icns'
+  'bin', 'dat', 'db', 'sqlite', 'ico', 'cur', 'icns',
 ]);
 // ==================== 自动过滤规则 ====================
 const IGNORE_DIR_NAMES = new Set([
   '.git', '.svn', '.hg',          // 版本控制
-  '__pycache__', 'venv', '.venv', '.pytest_cache',                 // Python
+  '__pycache__', 'venv', '.venv', '.pytest_cache',           // Python
   'node_modules',                 // Node.js
   'target',                       // Java / Maven
   'bin', 'obj',                   // C# / C++ 输出
@@ -32,14 +32,14 @@ const IGNORE_DIR_NAMES = new Set([
 
 const IGNORE_FILE_EXTENSIONS = new Set([
   'o', 'obj', 'exe', 'dll', 'so', 'dylib',   // 编译产物
-  'pyc', 'pyo', 'pkl', 'db', 'gitignore'                             // Python 字节码
+  'pyc', 'pyo', 'pkl', 'db', 'gitignore',                         // Python 字节码
   'class',                                    // Java 字节码
   'log', 'tmp', 'swp', 'swo',                 // 临时文件
   'DS_Store', 'csv', 'md',                                   // macOS 元数据
 ]);
 
 const IGNORE_FILE_NAMES = new Set([
-  '.DS_Store', 'Thumbs.db', 'desktop.ini'
+  '.DS_Store', 'Thumbs.db', 'desktop.ini',
 ]);
 
 // ==================== 工具函数 ====================
