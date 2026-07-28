@@ -89,43 +89,55 @@ async function isBinaryFile(file, path) {
   const ext = getExtension(path);
   if (BINARY_EXTENSIONS.has(ext)) return true;
 
-  // 读取前4个字节检查常见二进制魔数
+  // 读取前 256 字节用于魔数检测和文本试探
+  const headerSize = Math.min(file.size, 256);
+  const buffer = await file.slice(0, headerSize).arrayBuffer();
+  const view = new Uint8Array(buffer);
+  
+  // ----- 新增可执行文件魔数检测 -----
+  // ELF (Linux/Unix 可执行文件)
+  if (view[0] === 0x7F && view[1] === 0x45 && view[2] === 0x4C && view[3] === 0x46) return true;
+  // PE/COFF (Windows 可执行文件, .exe/.dll)
+  if (view[0] === 0x4D && view[1] === 0x5A) return true;
+  // Mach-O (macOS 可执行文件)
+  if (view[0] === 0xFE && view[1] === 0xED && view[2] === 0xFA && (view[3] === 0xCE || view[3] === 0xCF)) return true;
+  // ----- 保留原有魔数检测 -----
+  if (view[0] === 0x25 && view[1] === 0x50 && view[2] === 0x44 && view[3] === 0x46) return true; // PDF
+  if (view[0] === 0x89 && view[1] === 0x50 && view[2] === 0x4E && view[3] === 0x47) return true; // PNG
+  if (view[0] === 0xFF && view[1] === 0xD8 && view[2] === 0xFF) return true; // JPEG
+  if (view[0] === 0x50 && view[1] === 0x4B) return true; // ZIP
+  if (view[0] === 0x1F && view[1] === 0x8B) return true; // GZIP
+
+  // ----- 新增：尝试 UTF-8 解码，如果失败则视为二进制 -----
   try {
-    const header = await file.slice(0, 4).arrayBuffer();
-    const view = new Uint8Array(header);
-    // PDF: %PDF
-    if (view[0] === 0x25 && view[1] === 0x50 && view[2] === 0x44 && view[3] === 0x46) return true;
-    // PNG: �PNG
-    if (view[0] === 0x89 && view[1] === 0x50 && view[2] === 0x4E && view[3] === 0x47) return true;
-    // JPEG: ����
-    if (view[0] === 0xFF && view[1] === 0xD8 && view[2] === 0xFF) return true;
-    // ZIP (PK)
-    if (view[0] === 0x50 && view[1] === 0x4B) return true;
-    // GZIP
-    if (view[0] === 0x1F && view[1] === 0x8B) return true;
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    decoder.decode(buffer.slice(0, 128)); // 解码前128字节
   } catch (e) {
-    // 读取失败则保守认为是二进制
+    // 解码失败，说明不是合法的 UTF-8 文本，视为二进制
     return true;
   }
-  return false;
+
+  return false; // 通过所有检测，视为文本
 }
 
 // 流式读取文本文件（不阻塞UI）
 async function readTextFileStream(file) {
   const stream = file.stream();
   const reader = stream.getReader();
-  const decoder = new TextDecoder();
+  const decoder = new TextDecoder('utf-8', { fatal: true }); // 严格模式
   let result = '';
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      // decode 可能抛出异常，会被下面的 catch 捕获
       result += decoder.decode(value, { stream: true });
-      // 主动让出主线程，每块处理后可取消注释以提升响应性
-      // await new Promise(resolve => setTimeout(resolve, 0));
     }
     result += decoder.decode(); // 完成
+  } catch (e) {
+    // 重新抛出，让上层知道是解码失败
+    throw new Error('文件不是有效的文本文件');
   } finally {
     reader.releaseLock();
   }
@@ -170,39 +182,46 @@ async function pickDirectoryModern() {
 }
 
 async function walkDirectory(dirHandle, basePath) {
+  let batchCounter = 0;          // 累计处理文件数（仅用于批量更新）
+  const BATCH_SIZE = 50;         // 每50个文件更新一次进度
+
   for await (const entry of dirHandle.values()) {
     const fullPath = basePath ? `${basePath}/${entry.name}` : entry.name;
 
-    if (entry.kind === 'directory') {
-      // 目录过滤：如果目录名在忽略列表中，直接跳过该目录
-      if (isIgnored(fullPath, true)) {
-        continue;
-      }
-      // 递归遍历子目录
-      await walkDirectory(entry, fullPath);
-    } else if (entry.kind === 'file') {
-      // 文件过滤
-      if (isIgnored(fullPath, false)) {
-        continue;
-      }
+    try {
+      if (entry.kind === 'directory') {
+        if (isIgnored(fullPath, true)) continue;
+        await walkDirectory(entry, fullPath);
+      } else if (entry.kind === 'file') {
+        if (isIgnored(fullPath, false)) continue;
 
-      const file = await entry.getFile();
-      fileMap[fullPath] = file;
+        const file = await entry.getFile();
+        fileMap[fullPath] = file;
+        allExtensions.add(getExtension(fullPath));
 
-      const ext = getExtension(fullPath);
-      allExtensions.add(ext);
+        scanCount++;
+        batchCounter++;
 
-      // 更新扫描进度
-      scanCount++;
-      const progressEl = document.getElementById('scan-progress');
-      const countSpan = document.getElementById('scan-count');
-      if (progressEl && countSpan) {
-        progressEl.style.display = 'block';
-        countSpan.textContent = scanCount;
-        // 主动让出主线程，避免长时间阻塞渲染
-        await new Promise(resolve => setTimeout(resolve, 0));
+        // 批量更新：达到批次大小或处理完毕时才更新DOM
+        if (batchCounter % BATCH_SIZE === 0) {
+          updateScanProgress(scanCount);
+          // 让出主线程，但仅当批次达到时才让出，减少次数
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
       }
+    } catch (err) {
+      console.warn(`跳过 ${fullPath}：${err.message}`);
     }
+  }
+}
+
+// 辅助函数：更新进度显示
+function updateScanProgress(count) {
+  const progressEl = document.getElementById('scan-progress');
+  const countSpan = document.getElementById('scan-count');
+  if (progressEl && countSpan) {
+    progressEl.style.display = 'block';
+    countSpan.textContent = count;
   }
 }
 
@@ -507,7 +526,7 @@ async function generateMarkdown() {
         const content = await readTextFileStream(file);
         mdParts.push(`### \`${path}\`\n\`\`\`${ext === '[无后缀]' ? '' : ext}\n${content}\n\`\`\``);
       } catch (e) {
-        mdParts.push(`### \`${path}\`\n\`\`\`\n[读取失败: ${e.message || '未知错误'}]\n\`\`\``);
+        mdParts.push(`### \`${path}\`\n\`\`\`\n[读取失败: ${e.message || '文件可能为二进制或已损坏'}]\n\`\`\``);
       }
     }
   }
