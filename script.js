@@ -5,6 +5,8 @@ let allExtensions = new Set();
 let extensionFilters = new Set();
 let projectName = "";      // 从根目录名称获取
 let scanCount = 0;
+const MAX_SCAN_DEPTH = 200;          // 最大递归深度
+let visitedPaths = new Set();        // 用于检测循环引用
 // ==================== 二进制扩展名黑名单 ====================
 const BINARY_EXTENSIONS = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp',
@@ -91,10 +93,19 @@ async function isBinaryFile(file, path) {
 
   // 读取前 256 字节用于魔数检测和文本试探
   const headerSize = Math.min(file.size, 256);
-  const buffer = await file.slice(0, headerSize).arrayBuffer();
+  let buffer;
+  try {
+    buffer = await Promise.race([
+      file.slice(0, headerSize).arrayBuffer(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('读取头部超时')), 3000))
+    ]);
+  } catch (err) {
+    console.warn(`二进制检测超时，视为二进制: ${path}`);
+    return true; // 超时直接当作二进制，跳过内容
+  }
   const view = new Uint8Array(buffer);
   
-  // ----- 新增可执行文件魔数检测 -----
+  // ----- 可执行文件魔数检测 -----
   // ELF (Linux/Unix 可执行文件)
   if (view[0] === 0x7F && view[1] === 0x45 && view[2] === 0x4C && view[3] === 0x46) return true;
   // PE/COFF (Windows 可执行文件, .exe/.dll)
@@ -146,6 +157,7 @@ async function readTextFileStream(file) {
 
 // ==================== 新版文件夹选择 ====================
 async function pickDirectoryModern() {
+  visitedPaths = new Set();
   if (!('showDirectoryPicker' in window)) {
     alert('您的浏览器不支持新版文件夹选择，已自动切换到传统模式。');
     return;
@@ -181,9 +193,23 @@ async function pickDirectoryModern() {
   }
 }
 
-async function walkDirectory(dirHandle, basePath) {
-  let batchCounter = 0;          // 累计处理文件数（仅用于批量更新）
-  const BATCH_SIZE = 50;         // 每50个文件更新一次进度
+async function walkDirectory(dirHandle, basePath, depth = 0) {
+  // 深度保护
+  if (depth > MAX_SCAN_DEPTH) {
+    console.warn(`⚠️ 达到最大深度限制 (${MAX_SCAN_DEPTH})，跳过: ${basePath}`);
+    return;
+  }
+
+  // 循环引用检测（基于完整路径）
+  const currentPath = basePath || '';
+  if (visitedPaths.has(currentPath)) {
+    console.warn(`🔄 检测到循环引用，跳过: ${currentPath}`);
+    return;
+  }
+  visitedPaths.add(currentPath);
+
+  let batchCounter = 0;
+  const BATCH_SIZE = 50;
 
   for await (const entry of dirHandle.values()) {
     const fullPath = basePath ? `${basePath}/${entry.name}` : entry.name;
@@ -191,26 +217,41 @@ async function walkDirectory(dirHandle, basePath) {
     try {
       if (entry.kind === 'directory') {
         if (isIgnored(fullPath, true)) continue;
-        await walkDirectory(entry, fullPath);
+        // 递归，深度+1
+        await walkDirectory(entry, fullPath, depth + 1);
       } else if (entry.kind === 'file') {
         if (isIgnored(fullPath, false)) continue;
 
-        const file = await entry.getFile();
+        let file;
+        try {
+          // 超时保护（2秒）
+          file = await Promise.race([
+            entry.getFile(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error(`读取超时: ${fullPath}`)), 2000))
+          ]);
+        } catch (err) {
+          console.warn(`⏰ 跳过文件（读取超时）: ${fullPath}`);
+          continue;
+        }
+
+        // 可选：跳过超大文件（> 50 MB）
+        if (file.size > 50 * 1024 * 1024) {
+          console.warn(`📦 文件过大，跳过: ${fullPath} (${file.size} bytes)`);
+          continue;
+        }
+
         fileMap[fullPath] = file;
         allExtensions.add(getExtension(fullPath));
-
         scanCount++;
         batchCounter++;
 
-        // 批量更新：达到批次大小或处理完毕时才更新DOM
         if (batchCounter % BATCH_SIZE === 0) {
           updateScanProgress(scanCount);
-          // 让出主线程，但仅当批次达到时才让出，减少次数
           await new Promise(resolve => setTimeout(resolve, 0));
         }
       }
     } catch (err) {
-      console.warn(`跳过 ${fullPath}：${err.message}`);
+      console.warn(`⚠️ 处理 ${fullPath} 时出错:`, err.message);
     }
   }
 }
@@ -227,6 +268,7 @@ function updateScanProgress(count) {
 
 // ==================== 传统文件夹选择 ====================
 function handleLegacyPicker(files) {
+  visitedPaths = new Set();
   scanCount = 0;
   const progressEl = document.getElementById('scan-progress');
   if (progressEl) progressEl.style.display = 'block';
@@ -330,11 +372,10 @@ function updateSelectedInfo() {
 function buildTree() {
   const tree = {};
 
-  // 所有文件全部加入树（不按后缀过滤）
+  // 构建树对象（不变）
   Object.entries(fileMap).forEach(([path, file]) => {
     const parts = path.split('/');
     let current = tree;
-
     parts.forEach((part, idx) => {
       if (!current[part]) {
         current[part] = { __children: {}, __file: null };
@@ -347,24 +388,19 @@ function buildTree() {
   });
 
   const nodes = [];
-  // 根节点 ID 使用项目名，若为空则使用默认名
-  const rootId = projectName || '项目';
+  const rootId = "__ROOT__";   // ★ 固定根节点ID，避免与文件名冲突
 
-  // 1. 添加根节点
+  // 根节点
   nodes.push({
     id: rootId,
     parent: '#',
-    text: rootId + '/',        // 显示为 项目名/
-    icon: undefined,            // 可自定义文件夹图标，留空则使用默认
-    li_attr: {
-      "data-file": "false",     // 标记为非文件
-      "data-ext": ""
-    }
+    text: projectName + '/',
+    icon: undefined,
+    li_attr: { "data-file": "false", "data-ext": "" }
   });
 
-  // 2. 递归生成子节点
+  // 递归生成子节点
   function recurse(obj, parentPath) {
-    // 排序：目录优先 + 字母序
     const sortedEntries = Object.entries(obj).sort(([aName, aData], [bName, bData]) => {
       const aIsDir = !aData.__file;
       const bIsDir = !bData.__file;
@@ -373,13 +409,13 @@ function buildTree() {
     });
 
     sortedEntries.forEach(([name, data]) => {
-      // 当前节点的完整路径：如果父节点是根，则路径为 name；否则为 parentPath/name
+      // 当前节点的完整路径：如果父节点是根，则直接使用名称；否则拼接
       const currentPath = parentPath === rootId ? name : `${parentPath}/${name}`;
       const isFile = !!data.__file;
 
       const node = {
         id: currentPath,
-        parent: parentPath,
+        parent: parentPath,   // 父节点ID为 parentPath（根节点或子目录）
         text: isFile ? `${name} (${formatBytes(data.__file.size)})` : name,
         icon: isFile ? "jstree-file" : undefined,
         li_attr: {
@@ -389,17 +425,16 @@ function buildTree() {
       };
       nodes.push(node);
 
-      // 递归处理子目录
       if (data.__children && Object.keys(data.__children).length > 0) {
         recurse(data.__children, currentPath);
       }
     });
   }
 
-  // 从根节点开始递归，传入根节点 ID 作为父路径
+  // 从树根开始递归，父路径为 rootId
   recurse(tree, rootId);
 
-  // 3. 渲染 jsTree
+  // 渲染 jsTree
   $('#tree-container')
     .jstree('destroy')
     .empty()
@@ -412,10 +447,10 @@ function buildTree() {
       plugins: ["checkbox"]
     })
     .on("ready.jstree", function () {
-      applyExtensionFilter();   // 应用后缀筛选（隐藏不符合的文件）
+      applyExtensionFilter();
     })
     .on("changed.jstree", function () {
-      updateSelectedInfo();     // 更新总大小
+      updateSelectedInfo();
     });
 }
 
