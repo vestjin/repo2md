@@ -1,55 +1,74 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>REPO2MD</title>
-  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jstree@3.3.12/dist/themes/default/style.min.css"/>
-  <link rel="stylesheet" href="style.css"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>REPO2MD - 项目转Markdown</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jstree@3.3.12/dist/themes/default/style.min.css" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <h1>📘 项目转Markdown</h1>
+  <p class="subtitle">支持选择文件夹 或 上传 ZIP/TAR/GZ 压缩包</p>
 
-  <!-- 文件夹选择区域：动态控制新版/降级显示 -->
+  <!-- 方式一：文件夹选择区域（动态控制新版/降级显示） -->
   <div class="file-picker-wrapper">
-    <!-- 新版按钮（默认隐藏，支持showDirectoryPicker时显示） -->
     <button id="modern-picker-btn" class="file-picker-btn" style="display: none;">
       📁 选择文件夹（推荐）
     </button>
-    <!-- 降级方案：传统webkitdirectory (用于不支持新API的浏览器) -->
-    <label for="directory-picker" id="legacy-picker-label" class="file-picker-btn" style="display: block;">
+    <label for="directory-picker" id="legacy-picker-label" class="file-picker-btn" style="display: none;">
       ⚠️ 选择文件夹（传统模式）
     </label>
     <input type="file" id="directory-picker" webkitdirectory directory multiple />
   </div>
-  <!-- 过滤提示 -->
+
+  <!-- 方式二：压缩包上传区域 -->
+  <div class="upload-section">
+    <input type="file" id="archive-upload" accept=".zip,.tar,.gz,.tgz,.tar.gz,.gzip" style="display: none;" />
+    <button id="upload-btn" class="upload-btn">
+      <span class="btn-icon">📦</span>
+      <span class="btn-text">上传压缩包</span>
+      <span class="btn-hint">支持 ZIP/TAR/GZ</span>
+    </button>
+    <div id="archive-progress" class="progress-tip" style="display: none;">
+      ⏳ 正在解压... 已处理 <span id="extract-count">0</span> 个文件
+    </div>
+  </div>
+
   <p class="filter-note">⚙️ 自动过滤：.git, __pycache__, target, .o, .pyc 等常见无关文件/目录</p>
+
+  <!-- 后缀筛选 -->
   <div>
     <label><strong>后缀筛选</strong></label>
     <div id="extension-filters"></div>
   </div>
 
-  <!-- 遍历进度提示 -->
-  <div id="scan-progress" style="display: none; margin: 10px 0; padding: 8px; background: #f0f0f0; border-radius: 4px;">
+  <!-- 扫描进度 -->
+  <div id="scan-progress" class="progress-tip" style="display: none;">
     📂 正在扫描文件: <span id="scan-count">0</span>
   </div>
 
-  <div id="tree-container"></div>
-  <p>📦 当前选中文件总大小：<span id="size-display">0 B</span></p>
-
-  <button id="generate-btn">生成 Markdown</button>
-  <button id="copy-btn">📋 复制到剪贴板</button>
-  <button id="export-btn">💾 导出为 .md 文件</button>
-
   <!-- 生成进度 -->
-  <div id="generate-progress" style="display: none; margin: 10px 0; padding: 8px; background: #e3f2fd; border-radius: 4px;">
+  <div id="generate-progress" class="progress-tip" style="display: none;">
     ⏳ 正在生成: <span id="generate-status"></span>
   </div>
-  
+
+  <div id="tree-container"></div>
+
+  <p>📦 当前选中文件总大小：<span id="size-display">0 B</span></p>
+
+  <button id="generate-btn">📝 生成 Markdown</button>
+  <button id="copy-btn">📋 复制到剪贴板</button>
+  <button id="export-btn">💾 导出为 .md 文件</button>
+  <button id="share-btn" style="display: none;">📤 分享</button>
+
   <textarea id="markdown-output" rows="20" placeholder="Markdown 会显示在这里..."></textarea>
 
+  <!-- 依赖库 -->
   <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jstree@3.3.12/dist/jstree.min.js"></script>
   <script src="script.js"></script>
 </body>
