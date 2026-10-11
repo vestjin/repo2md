@@ -1,6 +1,6 @@
 // ==================== 全局状态 ====================
-let fileMap = {};              // { relativePath: File }
-let selectedPaths = [];        // 当前勾选的文件路径
+let fileMap = {};
+let selectedPaths = [];
 let allExtensions = new Set();
 let extensionFilters = new Set();
 let projectName = "";
@@ -40,7 +40,7 @@ const IGNORE_DIR_NAMES = new Set([
 const IGNORE_FILE_EXTENSIONS = new Set([
   'o', 'obj', 'exe', 'dll', 'so', 'dylib',
   'pyc', 'pyo', 'pkl', 'db', 'class',
-  'log', 'tmp', 'swp', 'swo', 'DS_Store', 'csv'
+  'log', 'tmp', 'swp', 'swo', 'csv'
 ]);
 
 const IGNORE_FILE_NAMES = new Set(['.DS_Store', 'Thumbs.db', 'desktop.ini']);
@@ -80,9 +80,18 @@ function updateScanProgress(count) {
   const el = document.getElementById('scan-progress');
   const span = document.getElementById('scan-count');
   if (el && span) {
-    el.style.display = 'block';
+    el.hidden = false;
     span.textContent = count;
   }
+}
+
+function resetState() {
+  fileMap = {};
+  selectedPaths = [];
+  allExtensions.clear();
+  extensionFilters.clear();
+  visitedPaths = new Set();
+  scanCount = 0;
 }
 
 // ==================== 二进制文件检测 ====================
@@ -102,14 +111,14 @@ async function isBinaryFile(file, path) {
   }
   const view = new Uint8Array(buffer);
 
-  if (view[0] === 0x7F && view[1] === 0x45 && view[2] === 0x4C && view[3] === 0x46) return true; // ELF
-  if (view[0] === 0x4D && view[1] === 0x5A) return true;                                         // PE/COFF
-  if (view[0] === 0xFE && view[1] === 0xED && view[2] === 0xFA) return true;                     // Mach-O
-  if (view[0] === 0x25 && view[1] === 0x50 && view[2] === 0x44 && view[3] === 0x46) return true; // PDF
-  if (view[0] === 0x89 && view[1] === 0x50) return true;                                         // PNG
-  if (view[0] === 0xFF && view[1] === 0xD8) return true;                                         // JPEG
-  if (view[0] === 0x50 && view[1] === 0x4B) return true;                                         // ZIP
-  if (view[0] === 0x1F && view[1] === 0x8B) return true;                                         // GZIP
+  if (view[0] === 0x7F && view[1] === 0x45 && view[2] === 0x4C && view[3] === 0x46) return true;
+  if (view[0] === 0x4D && view[1] === 0x5A) return true;
+  if (view[0] === 0xFE && view[1] === 0xED && view[2] === 0xFA) return true;
+  if (view[0] === 0x25 && view[1] === 0x50 && view[2] === 0x44 && view[3] === 0x46) return true;
+  if (view[0] === 0x89 && view[1] === 0x50) return true;
+  if (view[0] === 0xFF && view[1] === 0xD8) return true;
+  if (view[0] === 0x50 && view[1] === 0x4B) return true;
+  if (view[0] === 0x1F && view[1] === 0x8B) return true;
 
   for (let i = 0; i < view.length; i++) {
     if (view[i] === 0) return true;
@@ -195,7 +204,7 @@ class TarParser {
   }
 }
 
-// ==================== 多格式解压（ZIP/TAR/TGZ） ====================
+// ==================== 多格式解压 ====================
 async function extractArchive(file) {
   const filename = file.name.toLowerCase();
   const ext = filename.split('.').pop();
@@ -227,20 +236,15 @@ async function extractArchive(file) {
 
 // ==================== 处理压缩包上传 ====================
 async function handleArchiveUpload(file) {
-  scanCount = 0;
-  fileMap = {};
-  allExtensions.clear();
-  extensionFilters.clear();
-  visitedPaths = new Set();
+  resetState();
 
   const progressEl = document.getElementById('archive-progress');
-  progressEl.style.display = 'block';
+  progressEl.hidden = false;
   document.getElementById('extract-count').textContent = '0';
 
   try {
     const files = await extractArchive(file);
 
-    // 提取公共顶级目录作为项目名
     let candidateName = '';
     if (files.length > 0) {
       candidateName = files[0].name.split('/')[0];
@@ -282,13 +286,13 @@ async function handleArchiveUpload(file) {
       }
     }
 
-    progressEl.style.display = 'none';
+    progressEl.hidden = true;
     extensionFilters = new Set(allExtensions);
     renderExtensionFilters();
     buildTree();
     alert('✅ 解压成功，共 ' + scanCount + ' 个文件');
   } catch (error) {
-    progressEl.style.display = 'none';
+    progressEl.hidden = true;
     console.error(error);
     alert('❌ 解压失败：' + error.message);
   }
@@ -296,32 +300,28 @@ async function handleArchiveUpload(file) {
 
 // ==================== 新版文件夹选择 ====================
 async function pickDirectoryModern() {
-  visitedPaths = new Set();
   if (!('showDirectoryPicker' in window)) {
-    alert('您的浏览器不支持新版文件夹选择，已自动切换到传统模式。');
+    document.getElementById('directory-picker').click();
     return;
   }
 
-  scanCount = 0;
+  resetState();
   const progressEl = document.getElementById('scan-progress');
-  progressEl.style.display = 'block';
+  progressEl.hidden = false;
   document.getElementById('scan-count').textContent = '0';
 
   try {
     const dirHandle = await window.showDirectoryPicker();
     projectName = dirHandle.name;
-    fileMap = {};
-    allExtensions.clear();
-    extensionFilters.clear();
 
     await walkDirectory(dirHandle, '');
 
-    progressEl.style.display = 'none';
+    progressEl.hidden = true;
     extensionFilters = new Set(allExtensions);
     renderExtensionFilters();
     buildTree();
   } catch (err) {
-    progressEl.style.display = 'none';
+    progressEl.hidden = true;
     if (err.name === 'AbortError') return;
     console.error(err);
     alert('读取文件夹失败：' + err.message);
@@ -379,15 +379,11 @@ async function walkDirectory(dirHandle, basePath, depth = 0) {
 
 // ==================== 传统文件夹选择 ====================
 function handleLegacyPicker(files) {
-  visitedPaths = new Set();
-  scanCount = 0;
-  const progressEl = document.getElementById('scan-progress');
-  progressEl.style.display = 'block';
-  document.getElementById('scan-count').textContent = '0';
+  resetState();
 
-  fileMap = {};
-  allExtensions.clear();
-  extensionFilters.clear();
+  const progressEl = document.getElementById('scan-progress');
+  progressEl.hidden = false;
+  document.getElementById('scan-count').textContent = '0';
 
   if (files.length > 0) {
     const firstPath = files[0].webkitRelativePath || files[0].name;
@@ -406,11 +402,110 @@ function handleLegacyPicker(files) {
     scanCount++;
   });
 
-  progressEl.style.display = 'none';
+  progressEl.hidden = true;
   updateScanProgress(scanCount);
   extensionFilters = new Set(allExtensions);
   renderExtensionFilters();
   buildTree();
+}
+
+// ==================== 拖拽：FileSystemEntry 递归 ====================
+async function walkFileSystemEntry(entry, basePath, depth = 0) {
+  if (depth > MAX_SCAN_DEPTH) return;
+
+  const fullPath = basePath ? basePath + '/' + entry.name : entry.name;
+
+  if (entry.isDirectory) {
+    if (isIgnored(fullPath, true)) return;
+
+    const reader = entry.createReader();
+    const children = await new Promise((resolve, reject) => {
+      const all = [];
+      const readBatch = () => {
+        reader.readEntries(
+          results => {
+            if (results.length === 0) resolve(all);
+            else { all.push(...results); readBatch(); }
+          },
+          reject
+        );
+      };
+      readBatch();
+    });
+
+    for (const child of children) {
+      await walkFileSystemEntry(child, fullPath, depth + 1);
+    }
+  } else if (entry.isFile) {
+    if (isIgnored(fullPath, false)) return;
+
+    const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+    if (file.size > 50 * 1024 * 1024) return;
+
+    fileMap[fullPath] = file;
+    allExtensions.add(getExtension(fullPath));
+    scanCount++;
+
+    if (scanCount % BATCH_SIZE === 0) {
+      updateScanProgress(scanCount);
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+}
+
+async function handleDrop(e) {
+  const dt = e.dataTransfer;
+  const items = dt.items;
+  const rawFiles = dt.files;
+
+  // 优先使用 webkitGetAsEntry，可以识别文件夹
+  const entries = [];
+  if (items && items.length) {
+    for (const item of items) {
+      if (item.kind !== 'file') continue;
+      const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+      if (entry) entries.push(entry);
+    }
+  }
+
+  // 情况 1：拖入单个文件夹
+  if (entries.length === 1 && entries[0].isDirectory) {
+    resetState();
+    projectName = entries[0].name;
+    const progressEl = document.getElementById('scan-progress');
+    progressEl.hidden = false;
+    document.getElementById('scan-count').textContent = '0';
+
+    await walkFileSystemEntry(entries[0], '');
+
+    progressEl.hidden = true;
+    updateScanProgress(scanCount);
+    extensionFilters = new Set(allExtensions);
+    renderExtensionFilters();
+    buildTree();
+    return;
+  }
+
+  // 情况 2：拖入单个压缩包文件
+  if (entries.length === 1 && entries[0].isFile) {
+    if (/\.(zip|tar|gz|tgz|tar\.gz)$/i.test(entries[0].name)) {
+      const file = await new Promise((resolve, reject) => entries[0].file(resolve, reject));
+      await handleArchiveUpload(file);
+      return;
+    }
+  }
+
+  // 情况 3：回退 —— 用 dt.files 简单处理
+  if (rawFiles && rawFiles.length) {
+    if (rawFiles.length === 1 && /\.(zip|tar|gz|tgz|tar\.gz)$/i.test(rawFiles[0].name)) {
+      await handleArchiveUpload(rawFiles[0]);
+      return;
+    }
+    handleLegacyPicker(rawFiles);
+    return;
+  }
+
+  alert('⚠️ 未识别到可读取的内容，请拖入文件夹或压缩包');
 }
 
 // ==================== 后缀筛选 UI ====================
@@ -418,7 +513,15 @@ function renderExtensionFilters() {
   const container = document.getElementById('extension-filters');
   container.innerHTML = '';
 
+  if (allExtensions.size === 0) {
+    container.innerHTML = '<span class="chips-empty">暂无文件，请先选择来源</span>';
+    return;
+  }
+
   Array.from(allExtensions).sort((a, b) => a.localeCompare(b)).forEach(ext => {
+    const label = document.createElement('label');
+    label.className = 'chip';
+
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.value = ext;
@@ -430,11 +533,9 @@ function renderExtensionFilters() {
       applyExtensionFilter();
     });
 
-    const label = document.createElement('label');
     label.htmlFor = checkbox.id;
-    label.style.marginRight = '10px';
     label.appendChild(checkbox);
-    label.appendChild(document.createTextNode(' ' + ext));
+    label.appendChild(document.createTextNode(ext));
     container.appendChild(label);
   });
 }
@@ -593,12 +694,13 @@ async function generateMarkdown() {
   const progressEl = document.getElementById('generate-progress');
   const statusSpan = document.getElementById('generate-status');
 
-  progressEl.style.display = 'block';
+  progressEl.hidden = false;
 
   mdParts.push('# 项目概览：' + (projectName || 'untitled') + '\n');
   mdParts.push('## 📁 目录结构\n');
   mdParts.push('\n' + generateDirectoryTree() + '\n```\n');
-    if (selectedPaths.length === 0) {
+
+  if (selectedPaths.length === 0) {
     mdParts.push('*(未选中任何文件)*');
   } else {
     mdParts.push('## 📄 文件内容\n');
@@ -615,17 +717,18 @@ async function generateMarkdown() {
         mdParts.push('### `' + path + '`\n[二进制文件，已跳过]\n```');
         continue;
       }
-        try {
-          const content = await readTextFileStream(file);
-          mdParts.push('### `' + path + '`\n```' + (ext === '[无后缀]' ? '' : ext) + '\n' + content + '\n```');
-        } catch (e) {
-          mdParts.push('### `' + path + '`\n```\n[读取失败: ' + (e.message || '未知错误') + ']\n```');
-        }
+      try {
+        const content = await readTextFileStream(file);
+        mdParts.push('### `' + path + '`\n```' + (ext === '[无后缀]' ? '' : ext) + '\n' + content + '\n```');
+      } catch (e) {
+        mdParts.push('### `' + path + '`\n```\n[读取失败: ' + (e.message || '未知错误') + ']\n```');
       }
     }
-    progressEl.style.display = 'none';
-    return mdParts.join('\n\n');
   }
+  progressEl.hidden = true;
+  return mdParts.join('\n\n');
+}
+
 // ==================== 敏感文件检测 ====================
 function hasSensitiveFiles(paths) {
   return paths.some(path => {
@@ -651,28 +754,87 @@ function downloadMarkdown(content, name) {
 
 // ==================== 事件绑定 ====================
 function initUI() {
-  const modernBtn = document.getElementById('modern-picker-btn');
-  const legacyLabel = document.getElementById('legacy-picker-label');
-  const legacyInput = document.getElementById('directory-picker');
+  const pickBtn = document.getElementById('pick-btn');
+  const pickMenu = document.getElementById('pick-menu');
+  const menuFolder = document.getElementById('menu-folder');
+  const menuArchive = document.getElementById('menu-archive');
+  const dirInput = document.getElementById('directory-picker');
+  const archiveInput = document.getElementById('archive-upload');
+  const dropZone = document.getElementById('drop-zone');
 
-  if ('showDirectoryPicker' in window) {
-    modernBtn.style.display = 'block';
-    legacyLabel.style.display = 'none';
-    modernBtn.addEventListener('click', pickDirectoryModern);
-  } else {
-    modernBtn.style.display = 'none';
-    legacyLabel.style.display = 'block';
-    legacyInput.addEventListener('change', (e) => handleLegacyPicker(e.target.files));
+  // ---- 打开 / 关闭下拉菜单 ----
+  function openMenu() {
+    pickMenu.hidden = false;
+    pickBtn.setAttribute('aria-expanded', 'true');
+  }
+  function closeMenu() {
+    pickMenu.hidden = true;
+    pickBtn.setAttribute('aria-expanded', 'false');
   }
 
-  document.getElementById('upload-btn').addEventListener('click', () => {
-    document.getElementById('archive-upload').click();
+  pickBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (pickMenu.hidden) openMenu(); else closeMenu();
   });
 
-  document.getElementById('archive-upload').addEventListener('change', (e) => {
+  document.addEventListener('click', (e) => {
+    if (!pickMenu.hidden && !pickMenu.contains(e.target) && e.target !== pickBtn) {
+      closeMenu();
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !pickMenu.hidden) closeMenu();
+  });
+
+  // ---- 菜单项 1：选择文件夹 ----
+  menuFolder.addEventListener('click', async () => {
+    closeMenu();
+    // 现代浏览器走 showDirectoryPicker，否则回退到 input[webkitdirectory]
+    if ('showDirectoryPicker' in window) {
+      await pickDirectoryModern();
+    } else {
+      dirInput.click();
+    }
+  });
+
+  // ---- 菜单项 2：上传压缩包 ----
+  menuArchive.addEventListener('click', () => {
+    closeMenu();
+    archiveInput.click();
+  });
+
+  // ---- 传统文件夹 input ----
+  dirInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) handleLegacyPicker(e.target.files);
+    e.target.value = '';
+  });
+
+  // ---- 压缩包 input ----
+  archiveInput.addEventListener('change', (e) => {
     if (e.target.files.length > 0) handleArchiveUpload(e.target.files[0]);
+    e.target.value = '';
   });
 
+  // ---- 拖拽支持 ----
+  ['dragenter', 'dragover'].forEach(evt => {
+    dropZone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.add('drag-over');
+    });
+  });
+  ['dragleave', 'drop'].forEach(evt => {
+    dropZone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (evt === 'dragleave' && dropZone.contains(e.relatedTarget)) return;
+      dropZone.classList.remove('drag-over');
+    });
+  });
+  dropZone.addEventListener('drop', handleDrop);
+
+  // ---- 生成 Markdown ----
   document.getElementById('generate-btn').addEventListener('click', async () => {
     if (selectedPaths.length === 0) {
       alert('⚠️ 请先选择文件');
@@ -696,6 +858,7 @@ function initUI() {
     }
   });
 
+  // ---- 复制 ----
   document.getElementById('copy-btn').addEventListener('click', async () => {
     const text = document.getElementById('markdown-output').value;
     if (!text.trim()) {
@@ -713,6 +876,7 @@ function initUI() {
     }
   });
 
+  // ---- 导出 ----
   document.getElementById('export-btn').addEventListener('click', () => {
     const content = document.getElementById('markdown-output').value;
     if (!content.trim()) {
@@ -722,9 +886,10 @@ function initUI() {
     downloadMarkdown(content, projectName);
   });
 
+  // ---- 分享 ----
   const shareBtn = document.getElementById('share-btn');
   if (navigator.share) {
-    shareBtn.style.display = 'inline-block';
+    shareBtn.hidden = false;
     shareBtn.addEventListener('click', async () => {
       const content = document.getElementById('markdown-output').value;
       if (!content.trim()) {
@@ -741,6 +906,9 @@ function initUI() {
       }
     });
   }
+
+  // 初始渲染后缀筛选（空状态提示）
+  renderExtensionFilters();
 }
 
 // ==================== 启动 ====================
