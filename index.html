@@ -11,6 +11,7 @@
 <body>
   <div class="shell">
 
+    <!-- ==================== 标题栏 ==================== -->
     <div class="titlebar">
       <div class="traffic">
         <span class="dot dot-r"></span>
@@ -23,8 +24,10 @@
 
     <div class="workspace">
 
+      <!-- ==================== 左侧栏 ==================== -->
       <aside class="sidebar">
 
+        <!-- 来源 -->
         <div class="section">
           <div class="section-label">来源</div>
           <div class="drop-zone" id="drop-zone">
@@ -73,11 +76,13 @@
           </div>
         </div>
 
+        <!-- 后缀筛选 -->
         <div class="section">
           <div class="section-label">后缀筛选</div>
           <div id="extension-filters" class="chips"></div>
         </div>
 
+        <!-- 文件树 -->
         <div class="section section-grow">
           <div class="section-label">
             <span>文件列表</span>
@@ -88,6 +93,7 @@
 
       </aside>
 
+      <!-- ==================== 右侧编辑区 ==================== -->
       <main class="editor">
 
         <div class="editor-head">
@@ -108,27 +114,12 @@
           <span>生成中 · <b id="generate-status"></b></span>
         </div>
 
-        <div class="output-wrap">
-          <textarea id="markdown-output" placeholder="// 生成的 Markdown 会显示在这里…" spellcheck="false"></textarea>
-
-          <!-- 悬浮目录：默认 style="display:none"，JS 控制显隐 -->
-          <aside class="toc" id="toc" style="display: none;" aria-label="目录">
-            <button type="button" class="toc-toggle" id="toc-toggle" aria-expanded="true">
-              <span class="toc-icon" aria-hidden="true">≡</span>
-              <span class="toc-label">目录</span>
-              <span class="toc-count" id="toc-count">0</span>
-              <span class="toc-arrow" id="toc-arrow" aria-hidden="true">▾</span>
-            </button>
-            <div class="toc-body" id="toc-body">
-              <div class="toc-list" id="toc-list"></div>
-            </div>
-          </aside>
-        </div>
-
+        <textarea id="markdown-output" placeholder="// 生成的 Markdown 会显示在这里…" spellcheck="false"></textarea>
       </main>
 
     </div>
 
+    <!-- ==================== 状态栏 ==================== -->
     <footer class="statusbar">
       <span class="status-item"><span class="status-dot"></span>READY</span>
       <span class="status-spacer"></span>

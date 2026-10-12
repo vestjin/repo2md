@@ -8,7 +8,6 @@ let scanCount = 0;
 const MAX_SCAN_DEPTH = 200;
 const BATCH_SIZE = 50;
 let visitedPaths = new Set();
-let tocHeadings = [];
 
 // ==================== 二进制扩展名黑名单 ====================
 const BINARY_EXTENSIONS = new Set([
@@ -330,7 +329,10 @@ async function pickDirectoryModern() {
 }
 
 async function walkDirectory(dirHandle, basePath, depth = 0) {
-  if (depth > MAX_SCAN_DEPTH) return;
+  if (depth > MAX_SCAN_DEPTH) {
+    console.warn('达到最大深度限制，跳过: ' + basePath);
+    return;
+  }
 
   const currentPath = basePath || '';
   if (visitedPaths.has(currentPath)) return;
@@ -407,7 +409,7 @@ function handleLegacyPicker(files) {
   buildTree();
 }
 
-// ==================== 拖拽 ====================
+// ==================== 拖拽：FileSystemEntry 递归 ====================
 async function walkFileSystemEntry(entry, basePath, depth = 0) {
   if (depth > MAX_SCAN_DEPTH) return;
 
@@ -456,6 +458,7 @@ async function handleDrop(e) {
   const items = dt.items;
   const rawFiles = dt.files;
 
+  // 优先使用 webkitGetAsEntry，可以识别文件夹
   const entries = [];
   if (items && items.length) {
     for (const item of items) {
@@ -465,6 +468,7 @@ async function handleDrop(e) {
     }
   }
 
+  // 情况 1：拖入单个文件夹
   if (entries.length === 1 && entries[0].isDirectory) {
     resetState();
     projectName = entries[0].name;
@@ -482,6 +486,7 @@ async function handleDrop(e) {
     return;
   }
 
+  // 情况 2：拖入单个压缩包文件
   if (entries.length === 1 && entries[0].isFile) {
     if (/\.(zip|tar|gz|tgz|tar\.gz)$/i.test(entries[0].name)) {
       const file = await new Promise((resolve, reject) => entries[0].file(resolve, reject));
@@ -490,6 +495,7 @@ async function handleDrop(e) {
     }
   }
 
+  // 情况 3：回退 —— 用 dt.files 简单处理
   if (rawFiles && rawFiles.length) {
     if (rawFiles.length === 1 && /\.(zip|tar|gz|tgz|tar\.gz)$/i.test(rawFiles[0].name)) {
       await handleArchiveUpload(rawFiles[0]);
@@ -746,115 +752,6 @@ function downloadMarkdown(content, name) {
   URL.revokeObjectURL(url);
 }
 
-// ==================== 悬浮目录（TOC） ====================
-
-/**
- * 解析 textarea 中所有 markdown 标题
- * 每项：{ level, text, offsetStart, offsetEnd }
- */
-function parseHeadings() {
-  const textarea = document.getElementById('markdown-output');
-  if (!textarea) return [];
-  const text = textarea.value;
-  if (!text) return [];
-
-  const lines = text.split('\n');
-  const headings = [];
-  let offset = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const m = line.match(/^(#{1,4})\s+(.+?)\s*$/);
-    if (m) {
-      headings.push({
-        level: m[1].length,
-        text: m[2].trim(),
-        offsetStart: offset,
-        offsetEnd: offset + line.length
-      });
-    }
-    offset += line.length + 1; // \n
-  }
-  return headings;
-}
-
-/**
- * 渲染目录
- * - 有标题：显示目录、填充列表、自动展开
- * - 无标题：显示胶囊但列表为空，保持已有折叠状态
- */
-function renderToc() {
-  const tocEl = document.getElementById('toc');
-  const listEl = document.getElementById('toc-list');
-  const countEl = document.getElementById('toc-count');
-  if (!tocEl || !listEl || !countEl) return;
-
-  tocHeadings = parseHeadings();
-  countEl.textContent = tocHeadings.length;
-
-  // 无标题：允许隐藏（免得空框干扰）
-  if (tocHeadings.length === 0) {
-    tocEl.style.display = 'none';
-    return;
-  }
-
-  // 有标题：显示 + 展开
-  tocEl.style.display = 'flex';
-  tocEl.classList.remove('collapsed');
-  const arrow = document.getElementById('toc-arrow');
-  if (arrow) arrow.textContent = '▾';
-
-  listEl.innerHTML = '';
-  tocHeadings.forEach((h, idx) => {
-    const item = document.createElement('button');
-    item.type = 'button';
-    item.className = 'toc-item toc-level-' + h.level;
-    item.title = h.text;
-    item.dataset.index = idx;
-
-    const prefixSpan = document.createElement('span');
-    prefixSpan.className = 'toc-prefix';
-    prefixSpan.textContent = '#'.repeat(h.level);
-
-    const textSpan = document.createElement('span');
-    textSpan.textContent = h.text;
-
-    item.appendChild(prefixSpan);
-    item.appendChild(textSpan);
-    item.addEventListener('click', () => jumpToHeading(h));
-    listEl.appendChild(item);
-  });
-}
-
-function jumpToHeading(h) {
-  const textarea = document.getElementById('markdown-output');
-  if (!textarea) return;
-
-  textarea.focus();
-  textarea.setSelectionRange(h.offsetStart, h.offsetEnd);
-
-  clearTimeout(jumpToHeading._timer);
-  jumpToHeading._timer = setTimeout(() => {
-    if (document.activeElement === textarea) {
-      textarea.setSelectionRange(h.offsetEnd, h.offsetEnd);
-    }
-  }, 1400);
-}
-
-function initTocToggle() {
-  const toggle = document.getElementById('toc-toggle');
-  const toc = document.getElementById('toc');
-  const arrow = document.getElementById('toc-arrow');
-  if (!toggle || !toc) return;
-
-  toggle.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const collapsed = toc.classList.toggle('collapsed');
-    toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-    if (arrow) arrow.textContent = collapsed ? '▸' : '▾';
-  });
-}
-
 // ==================== 事件绑定 ====================
 function initUI() {
   const pickBtn = document.getElementById('pick-btn');
@@ -865,7 +762,7 @@ function initUI() {
   const archiveInput = document.getElementById('archive-upload');
   const dropZone = document.getElementById('drop-zone');
 
-  // ---- 下拉菜单 ----
+  // ---- 打开 / 关闭下拉菜单 ----
   function openMenu() {
     pickMenu.hidden = false;
     pickBtn.setAttribute('aria-expanded', 'true');
@@ -890,9 +787,10 @@ function initUI() {
     if (e.key === 'Escape' && !pickMenu.hidden) closeMenu();
   });
 
-  // ---- 选择文件夹 ----
+  // ---- 菜单项 1：选择文件夹 ----
   menuFolder.addEventListener('click', async () => {
     closeMenu();
+    // 现代浏览器走 showDirectoryPicker，否则回退到 input[webkitdirectory]
     if ('showDirectoryPicker' in window) {
       await pickDirectoryModern();
     } else {
@@ -900,23 +798,25 @@ function initUI() {
     }
   });
 
-  // ---- 上传压缩包 ----
+  // ---- 菜单项 2：上传压缩包 ----
   menuArchive.addEventListener('click', () => {
     closeMenu();
     archiveInput.click();
   });
 
+  // ---- 传统文件夹 input ----
   dirInput.addEventListener('change', (e) => {
     if (e.target.files.length > 0) handleLegacyPicker(e.target.files);
     e.target.value = '';
   });
 
+  // ---- 压缩包 input ----
   archiveInput.addEventListener('change', (e) => {
     if (e.target.files.length > 0) handleArchiveUpload(e.target.files[0]);
     e.target.value = '';
   });
 
-  // ---- 拖拽 ----
+  // ---- 拖拽支持 ----
   ['dragenter', 'dragover'].forEach(evt => {
     dropZone.addEventListener(evt, (e) => {
       e.preventDefault();
@@ -948,17 +848,13 @@ function initUI() {
     btn.textContent = '⏳ 生成中...';
     try {
       const markdown = await generateMarkdown();
-      const textarea = document.getElementById('markdown-output');
-      textarea.value = markdown;
-      textarea.scrollTop = 0;
-      // 关键：延后一帧调用，确保 textarea 已经更新 DOM
-      requestAnimationFrame(() => renderToc());
+      document.getElementById('markdown-output').value = markdown;
     } catch (e) {
       console.error(e);
       alert('生成失败：' + e.message);
     } finally {
       btn.disabled = false;
-      btn.textContent = '▶ 生成';
+      btn.textContent = '📝 生成 Markdown';
     }
   });
 
@@ -1011,18 +907,7 @@ function initUI() {
     });
   }
 
-  // ---- TOC 折叠 ----
-  initTocToggle();
-
-  // ---- 用户手动编辑 textarea 时刷新目录（防抖） ----
-  const outArea = document.getElementById('markdown-output');
-  let tocTimer = null;
-  outArea.addEventListener('input', () => {
-    clearTimeout(tocTimer);
-    tocTimer = setTimeout(renderToc, 400);
-  });
-
-  // 初始：无文件时显示后缀筛选空提示
+  // 初始渲染后缀筛选（空状态提示）
   renderExtensionFilters();
 }
 
