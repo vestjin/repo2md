@@ -458,7 +458,6 @@ async function handleDrop(e) {
   const items = dt.items;
   const rawFiles = dt.files;
 
-  // 优先使用 webkitGetAsEntry，可以识别文件夹
   const entries = [];
   if (items && items.length) {
     for (const item of items) {
@@ -468,7 +467,6 @@ async function handleDrop(e) {
     }
   }
 
-  // 情况 1：拖入单个文件夹
   if (entries.length === 1 && entries[0].isDirectory) {
     resetState();
     projectName = entries[0].name;
@@ -486,7 +484,6 @@ async function handleDrop(e) {
     return;
   }
 
-  // 情况 2：拖入单个压缩包文件
   if (entries.length === 1 && entries[0].isFile) {
     if (/\.(zip|tar|gz|tgz|tar\.gz)$/i.test(entries[0].name)) {
       const file = await new Promise((resolve, reject) => entries[0].file(resolve, reject));
@@ -495,7 +492,6 @@ async function handleDrop(e) {
     }
   }
 
-  // 情况 3：回退 —— 用 dt.files 简单处理
   if (rawFiles && rawFiles.length) {
     if (rawFiles.length === 1 && /\.(zip|tar|gz|tgz|tar\.gz)$/i.test(rawFiles[0].name)) {
       await handleArchiveUpload(rawFiles[0]);
@@ -689,21 +685,32 @@ function generateDirectoryTree() {
 }
 
 // ==================== 生成 Markdown ====================
+// ★ 修改：同时在生成过程中记录大纲（window.mdOutline），并在完成后通知 UI 刷新目录
 async function generateMarkdown() {
   let mdParts = [];
+  const sectionRefs = [];   // { level, title, partIndex }
+
   const progressEl = document.getElementById('generate-progress');
   const statusSpan = document.getElementById('generate-status');
 
   progressEl.hidden = false;
 
+  // ---- 1. 顶部标题（一级） ----
+  sectionRefs.push({ level: 1, title: '项目概览：' + (projectName || 'untitled'), partIndex: mdParts.length });
   mdParts.push('# 项目概览：' + (projectName || 'untitled') + '\n');
+
+  // ---- 2. 目录结构标题（二级） ----
+  sectionRefs.push({ level: 2, title: '📁 目录结构', partIndex: mdParts.length });
   mdParts.push('## 📁 目录结构\n');
   mdParts.push('\n' + generateDirectoryTree() + '\n```\n');
 
+  // ---- 3. 文件内容 ----
   if (selectedPaths.length === 0) {
     mdParts.push('*(未选中任何文件)*');
   } else {
+    sectionRefs.push({ level: 2, title: '📄 文件内容', partIndex: mdParts.length });
     mdParts.push('## 📄 文件内容\n');
+
     const total = selectedPaths.length;
     for (let i = 0; i < total; i++) {
       const path = selectedPaths[i];
@@ -712,6 +719,9 @@ async function generateMarkdown() {
 
       statusSpan.textContent = '(' + (i + 1) + '/' + total + ') ' + path;
       await new Promise(resolve => setTimeout(resolve, 0));
+
+      // 记录每个文件三级标题的位置
+      sectionRefs.push({ level: 3, title: path, partIndex: mdParts.length });
 
       if (await isBinaryFile(file, path)) {
         mdParts.push('### `' + path + '`\n[二进制文件，已跳过]\n```');
@@ -726,7 +736,29 @@ async function generateMarkdown() {
     }
   }
   progressEl.hidden = true;
-  return mdParts.join('\n\n');
+
+  // ---- 4. 计算每个标题在最终字符串中的字符偏移 ----
+  const joiner = '\n\n';
+  const offsets = new Array(mdParts.length);
+  let acc = 0;
+  for (let i = 0; i < mdParts.length; i++) {
+    offsets[i] = acc;
+    acc += mdParts[i].length + (i < mdParts.length - 1 ? joiner.length : 0);
+  }
+
+  // ---- 5. 写入全局大纲，供悬浮目录使用 ----
+  window.mdOutline = sectionRefs.map(ref => ({
+    level: ref.level,
+    title: ref.title,
+    offset: offsets[ref.partIndex] || 0
+  }));
+
+  // ---- 6. 如果页面里挂载了 renderMdToc（见 index.html 内联脚本），就刷新 ----
+  if (typeof window.renderMdToc === 'function') {
+    try { window.renderMdToc(); } catch (e) { console.warn('TOC 渲染失败：', e); }
+  }
+
+  return mdParts.join(joiner);
 }
 
 // ==================== 敏感文件检测 ====================
@@ -762,7 +794,6 @@ function initUI() {
   const archiveInput = document.getElementById('archive-upload');
   const dropZone = document.getElementById('drop-zone');
 
-  // ---- 打开 / 关闭下拉菜单 ----
   function openMenu() {
     pickMenu.hidden = false;
     pickBtn.setAttribute('aria-expanded', 'true');
@@ -787,10 +818,8 @@ function initUI() {
     if (e.key === 'Escape' && !pickMenu.hidden) closeMenu();
   });
 
-  // ---- 菜单项 1：选择文件夹 ----
   menuFolder.addEventListener('click', async () => {
     closeMenu();
-    // 现代浏览器走 showDirectoryPicker，否则回退到 input[webkitdirectory]
     if ('showDirectoryPicker' in window) {
       await pickDirectoryModern();
     } else {
@@ -798,25 +827,21 @@ function initUI() {
     }
   });
 
-  // ---- 菜单项 2：上传压缩包 ----
   menuArchive.addEventListener('click', () => {
     closeMenu();
     archiveInput.click();
   });
 
-  // ---- 传统文件夹 input ----
   dirInput.addEventListener('change', (e) => {
     if (e.target.files.length > 0) handleLegacyPicker(e.target.files);
     e.target.value = '';
   });
 
-  // ---- 压缩包 input ----
   archiveInput.addEventListener('change', (e) => {
     if (e.target.files.length > 0) handleArchiveUpload(e.target.files[0]);
     e.target.value = '';
   });
 
-  // ---- 拖拽支持 ----
   ['dragenter', 'dragover'].forEach(evt => {
     dropZone.addEventListener(evt, (e) => {
       e.preventDefault();
@@ -834,7 +859,6 @@ function initUI() {
   });
   dropZone.addEventListener('drop', handleDrop);
 
-  // ---- 生成 Markdown ----
   document.getElementById('generate-btn').addEventListener('click', async () => {
     if (selectedPaths.length === 0) {
       alert('⚠️ 请先选择文件');
@@ -849,6 +873,8 @@ function initUI() {
     try {
       const markdown = await generateMarkdown();
       document.getElementById('markdown-output').value = markdown;
+      // 让 textarea 回滚到顶部，避免上次滚动位置残留
+      document.getElementById('markdown-output').scrollTop = 0;
     } catch (e) {
       console.error(e);
       alert('生成失败：' + e.message);
@@ -858,7 +884,6 @@ function initUI() {
     }
   });
 
-  // ---- 复制 ----
   document.getElementById('copy-btn').addEventListener('click', async () => {
     const text = document.getElementById('markdown-output').value;
     if (!text.trim()) {
@@ -876,7 +901,6 @@ function initUI() {
     }
   });
 
-  // ---- 导出 ----
   document.getElementById('export-btn').addEventListener('click', () => {
     const content = document.getElementById('markdown-output').value;
     if (!content.trim()) {
@@ -886,7 +910,6 @@ function initUI() {
     downloadMarkdown(content, projectName);
   });
 
-  // ---- 分享 ----
   const shareBtn = document.getElementById('share-btn');
   if (navigator.share) {
     shareBtn.hidden = false;
@@ -907,7 +930,6 @@ function initUI() {
     });
   }
 
-  // 初始渲染后缀筛选（空状态提示）
   renderExtensionFilters();
 }
 
