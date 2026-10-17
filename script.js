@@ -9,9 +9,21 @@ const MAX_SCAN_DEPTH = 200;
 const BATCH_SIZE = 50;
 let visitedPaths = new Set();
 
+
+// 白名单：命中直接判文本，跳过一切魔数和编码检测
+const TEXT_EXTENSIONS = new Set([
+  'js','mjs','cjs','jsx','ts','tsx','vue','svelte','astro',
+  'json','json5','jsonc','lock',
+  'html','htm','xml','svg','css','scss','sass','less','styl',
+  'md','markdown','mdx','txt','log','csv',
+  'yml','yaml','toml','ini','conf','cfg','properties',
+  'py','rb','go','rs','java','kt','c','h','cpp','hpp','cc','cs',
+  'php','sh','bash','zsh','fish','ps1','sql',
+  'env','gitignore','editorconfig','dockerignore','npmrc'
+]);
 // ==================== 二进制扩展名黑名单 ====================
 const BINARY_EXTENSIONS = new Set([
-  'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp', 'svg',
+  'png', 'jpg', 'jpeg', 'gif', 'bmp', 'ico', 'webp',
   'mp4', 'mp3', 'avi', 'mov', 'wmv', 'flv', 'webm',
   'pdf', 'xls', 'xlsx', 'ppt', 'pptx', 'doc', 'docx',
   'zip', 'rar', '7z', 'tar', 'gz', 'bz2',
@@ -96,46 +108,96 @@ function resetState() {
 
 // ==================== 二进制文件检测 ====================
 async function isBinaryFile(file, path) {
-  if (BINARY_EXTENSIONS.has(getExtension(path))) return true;
+  const ext = getExtension(path);
 
-  const headerSize = Math.min(file.size, 256);
+  // 1. 白名单优先：任何采样的 bug 都不会误伤 JS/JSON
+  if (TEXT_EXTENSIONS.has(ext)) return false;
+  if (BINARY_EXTENSIONS.has(ext)) return true;
+  if (file.size === 0) return false;
+
+  // 2. 采样 4KB（而不是 256 字节）
+  const headerSize = Math.min(file.size, 4096);
   let buffer;
   try {
-    buffer = await Promise.race([
-      file.slice(0, headerSize).arrayBuffer(),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('读取头部超时')), 3000))
-    ]);
-  } catch (err) {
-    return true;
+    buffer = await file.slice(0, headerSize).arrayBuffer();
+  } catch (e) {
+    // 读取失败不要判成二进制——交给后续流式读取去报真正原因
+    console.warn('[isBinaryFile] header read failed:', path, e.message);
+    return false;
   }
   const view = new Uint8Array(buffer);
+  if (view.length === 0) return false;
 
-  if (view[0] === 0x7F && view[1] === 0x45 && view[2] === 0x4C && view[3] === 0x46) return true;
-  if (view[0] === 0x4D && view[1] === 0x5A) return true;
-  if (view[0] === 0xFE && view[1] === 0xED && view[2] === 0xFA) return true;
-  if (view[0] === 0x25 && view[1] === 0x50 && view[2] === 0x44 && view[3] === 0x46) return true;
-  if (view[0] === 0x89 && view[1] === 0x50) return true;
-  if (view[0] === 0xFF && view[1] === 0xD8) return true;
-  if (view[0] === 0x50 && view[1] === 0x4B) return true;
-  if (view[0] === 0x1F && view[1] === 0x8B) return true;
+  // 3. 二进制 magic（用完整 4 字节）
+  const isMagic =
+    (view[0] === 0x7F && view[1] === 0x45 && view[2] === 0x4C && view[3] === 0x46) || // ELF
+    (view[0] === 0x4D && view[1] === 0x5A) ||                                        // MZ
+    (view[0] === 0x25 && view[1] === 0x50 && view[2] === 0x44 && view[3] === 0x46) ||// PDF
+    (view[0] === 0x89 && view[1] === 0x50 && view[2] === 0x4E && view[3] === 0x47) ||// PNG
+    (view[0] === 0xFF && view[1] === 0xD8 && view[2] === 0xFF) ||                    // JPEG
+    (view[0] === 0x50 && view[1] === 0x4B && view[2] === 0x03 && view[3] === 0x04) ||// ZIP
+    (view[0] === 0x1F && view[1] === 0x8B);                                          // GZ
+  if (isMagic) return true;
 
-  for (let i = 0; i < view.length; i++) {
-    if (view[i] === 0) return true;
+  // 4. UTF-16 BOM → 是文本
+  if ((view[0] === 0xFF && view[1] === 0xFE) || (view[0] === 0xFE && view[1] === 0xFF)) {
+    return false;
   }
 
+  // 5. NUL / 控制字符按比例判断（而不是"有一个就死"）
+  let nulCount = 0, ctrlCount = 0;
+  for (let i = 0; i < view.length; i++) {
+    const b = view[i];
+    if (b === 0) nulCount++;
+    else if (b < 0x20 && b !== 0x09 && b !== 0x0A && b !== 0x0D && b !== 0x0C) ctrlCount++;
+  }
+  if (nulCount / view.length > 0.1) return true;
+  if (ctrlCount / view.length > 0.05) return true;
+
+  // 6. 宽容 UTF-8 解码，用替换字符比例判断（容忍末尾截断）
+  let decoded;
   try {
-    new TextDecoder('utf-8', { fatal: true }).decode(buffer.slice(0, 128));
+    decoded = new TextDecoder('utf-8', { fatal: false }).decode(view);
   } catch (e) {
     return true;
   }
+  const bad = (decoded.match(/\uFFFD/g) || []).length;
+  // 末尾可能截断 1~2 个字符 → 少量 U+FFFD 是正常的
+  if (bad > 2 && bad / decoded.length > 0.01) return true;
+
   return false;
 }
 
 // ==================== 流式读取文本文件 ====================
+function scoreEncoding(bytes, enc) {
+  const text = new TextDecoder(enc, { fatal: false }).decode(bytes);
+  const bad = (text.match(/\uFFFD/g) || []).length;
+  return bad / (text.length || 1);
+}
+
+async function detectEncoding(file) {
+  const size = Math.min(file.size, 8192);
+  const sample = new Uint8Array(await file.slice(0, size).arrayBuffer());
+
+  if (sample[0] === 0xFF && sample[1] === 0xFE) return 'utf-16le';
+  if (sample[0] === 0xFE && sample[1] === 0xFF) return 'utf-16be';
+
+  const candidates = ['utf-8', 'gb18030', 'big5', 'shift_jis', 'windows-1252'];
+  let best = 'utf-8', bestScore = Infinity;
+  for (const enc of candidates) {
+    const s = scoreEncoding(sample, enc);
+    if (s === 0) return enc;              // 完美解码，直接采用
+    if (s < bestScore) { bestScore = s; best = enc; }
+  }
+  return best;
+}
+
 async function readTextFileStream(file) {
+  const encoding = await detectEncoding(file);
   const reader = file.stream().getReader();
-  const decoder = new TextDecoder('utf-8', { fatal: true });
+  // 用 fatal: false 宽容读取，避免 GBK 项目整体失败
+  const decoder = new TextDecoder(encoding, { fatal: false });
+
   let result = '';
   try {
     while (true) {
@@ -144,8 +206,6 @@ async function readTextFileStream(file) {
       result += decoder.decode(value, { stream: true });
     }
     result += decoder.decode();
-  } catch (e) {
-    throw new Error('文件不是有效的文本文件');
   } finally {
     reader.releaseLock();
   }
@@ -353,7 +413,7 @@ async function walkDirectory(dirHandle, basePath, depth = 0) {
           file = await Promise.race([
             entry.getFile(),
             new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('读取超时')), 2000))
+              setTimeout(() => reject(new Error('读取超时')), 3000))
           ]);
         } catch (err) {
           continue;
