@@ -335,7 +335,7 @@ async function handleArchiveUpload(file) {
         lastModified: Date.now(),
         type: 'application/octet-stream'
       });
-      fileObj.size = extractedFile.size;
+      // fileObj.size = extractedFile.size;
       fileMap[relativePath] = fileObj;
       allExtensions.add(getExtension(relativePath));
       scanCount++;
@@ -724,12 +724,13 @@ function generateDirectoryTree() {
       const hasChildren = Object.keys(data.__children || {}).length > 0;
       const isFile = !!data.__file;
 
-      result += prefix + (isLast ? '└── ' : '├── ') + name;
+      result += prefix + (isLastEntry ? '└── ' : '├── ') + name;
       if (!isFile && hasChildren) result += '/';
       result += '\n';
 
       if (hasChildren) {
-        result += buildTreeString(data.__children, prefix + (isLast ? '    ' : '│   '), isLastEntry);
+        const childPrefix = prefix + (isLastEntry ? '    ' : '│   ');
+        result += buildTreeString(data.__children, childPrefix, isLastEntry);
       }
     });
     return result;
@@ -784,7 +785,7 @@ async function generateMarkdown() {
       sectionRefs.push({ level: 3, title: path, partIndex: mdParts.length });
 
       if (await isBinaryFile(file, path)) {
-        mdParts.push('### `' + path + '`\n[二进制文件，已跳过]\n```');
+        mdParts.push('### `' + path + '`\n```\n[二进制文件，已跳过]\n```');
         continue;
       }
       try {
