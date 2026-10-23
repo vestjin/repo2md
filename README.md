@@ -3,10 +3,9 @@
 ## 📦 repo2md 版本清单
 
 ### ✅ 已完成
-- [x] 🌐 Web 版
+- [x] 🌐 Web 版/🤖 Android Web www.jinmajue.top/repo2md 支持文件夹和压缩包
 - [x] 🐍 Python GUI 版
 - [x] ⚡ VS Code 插件版-发布到Open vsx https://open-vsx.org/extension/vestjin/repo2md
-- [x] 🤖 Android Web www.jinmajue.top/repo2md/mobile/ 压缩包上传
 
 ### 🚧 开发中
 
